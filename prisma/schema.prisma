@@ -1,0 +1,382 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum LeadStatus {
+  NEW
+  ASKING
+  QUALIFIED
+  WAITLISTED
+  TRIAL_ACTIVE
+  PAYMENT_PENDING
+  ENROLLED
+  EXPIRED
+  DROPPED
+  OPTED_OUT
+  CANCELLED
+}
+
+enum LeadSource {
+  CTWA_AD
+  LEAD_FORM
+  ORGANIC
+  MANUAL
+}
+
+enum BatchStatus {
+  OPEN
+  FULL
+  CLOSED
+}
+
+enum EnrollmentStatus {
+  TRIAL
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  RAZORPAY
+  CASH
+  BANK
+  UPI_MANUAL
+}
+
+enum PaymentStatus {
+  CREATED
+  PAID
+  EXPIRED
+  REFUNDED
+  FAILED
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+enum MessageType {
+  TEXT
+  INTERACTIVE
+  TEMPLATE
+  MEDIA
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum QuestionInput {
+  TEXT
+  BUTTONS
+  LIST
+}
+
+enum OptionsSource {
+  STATIC
+  COURSES
+  BATCHES
+}
+
+enum WebhookProvider {
+  META
+  RAZORPAY
+  ZOOM
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum Role {
+  ADMIN
+  SALES
+  VIEWER
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model Course {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(100)
+  /// ≤72 chars: shown as a WhatsApp list row description
+  description String   @db.VarChar(72)
+  feePaise    Int      @map("fee_paise")
+  /// null → settings.default_trial_days
+  trialDays   Int?     @map("trial_days")
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  batches Batch[]
+  leads   Lead[]
+
+  @@map("courses")
+}
+
+model Batch {
+  id            String      @id @default(uuid()) @db.Uuid
+  courseId      String      @map("course_id") @db.Uuid
+  name          String
+  /// 1 = Mon … 7 = Sun
+  daysOfWeek    Int[]       @map("days_of_week")
+  /// "HH:mm" in IST
+  startTime     String      @map("start_time") @db.VarChar(5)
+  /// "HH:mm" in IST
+  endTime       String      @map("end_time") @db.VarChar(5)
+  startDate     DateTime    @map("start_date") @db.Date
+  endDate       DateTime    @map("end_date") @db.Date
+  capacity      Int
+  seatsTaken    Int         @default(0) @map("seats_taken")
+  zoomMeetingId BigInt?     @map("zoom_meeting_id")
+  zoomHostUser  String?     @map("zoom_host_user")
+  status        BatchStatus @default(OPEN)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  course      Course       @relation(fields: [courseId], references: [id])
+  enrollments Enrollment[]
+
+  @@index([courseId, status])
+  @@map("batches")
+}
+
+model Lead {
+  id              String     @id @default(uuid()) @db.Uuid
+  phoneE164       String     @unique @map("phone_e164")
+  waId            String?    @map("wa_id")
+  name            String?
+  profileName     String?    @map("profile_name")
+  courseId        String?    @map("course_id") @db.Uuid
+  status          LeadStatus @default(NEW)
+  currentStep     Int?       @map("current_step")
+  needsHuman      Boolean    @default(false) @map("needs_human")
+  source          LeadSource
+  adId            String?    @map("ad_id")
+  adName          String?    @map("ad_name")
+  campaignId      String?    @map("campaign_id")
+  ctwaClid        String?    @map("ctwa_clid")
+  lastInboundAt   DateTime?  @map("last_inbound_at")
+  freeWindowUntil DateTime?  @map("free_window_until")
+  remindersSent   Int        @default(0) @map("reminders_sent")
+  optedOutAt      DateTime?  @map("opted_out_at")
+  assignedToId    String?    @map("assigned_to_id") @db.Uuid
+  notes           String?
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  course      Course?      @relation(fields: [courseId], references: [id])
+  assignedTo  User?        @relation(fields: [assignedToId], references: [id])
+  events      LeadEvent[]
+  answers     Answer[]
+  enrollments Enrollment[]
+  messages    Message[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([needsHuman])
+  @@map("leads")
+}
+
+model LeadEvent {
+  id         BigInt      @id @default(autoincrement())
+  leadId     String      @map("lead_id") @db.Uuid
+  fromStatus LeadStatus? @map("from_status")
+  toStatus   LeadStatus  @map("to_status")
+  /// "bot" | "cron" | "webhook" | user id
+  actor      String
+  note       String?
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@map("lead_events")
+}
+
+model Question {
+  id              String        @id @default(uuid()) @db.Uuid
+  step            Int           @unique
+  /// "name" | "course" | "batch" | "confirm"
+  key             String
+  prompt          String
+  inputType       QuestionInput @map("input_type")
+  optionsSource   OptionsSource @map("options_source")
+  validationRegex String?       @map("validation_regex")
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  options QuestionOption[]
+
+  @@map("questions")
+}
+
+model QuestionOption {
+  id         String   @id @default(uuid()) @db.Uuid
+  questionId String   @map("question_id") @db.Uuid
+  value      String   @db.VarChar(24)
+  label      String   @db.VarChar(24)
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("question_options")
+}
+
+model Answer {
+  id          String   @id @default(uuid()) @db.Uuid
+  leadId      String   @map("lead_id") @db.Uuid
+  questionKey String   @map("question_key")
+  answerValue String   @map("answer_value")
+  answerLabel String   @map("answer_label")
+  answeredAt  DateTime @default(now()) @map("answered_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, questionKey])
+  @@map("answers")
+}
+
+model Enrollment {
+  id               String           @id @default(uuid()) @db.Uuid
+  leadId           String           @map("lead_id") @db.Uuid
+  batchId          String           @map("batch_id") @db.Uuid
+  status           EnrollmentStatus
+  trialStart       DateTime         @map("trial_start") @db.Date
+  trialEnd         DateTime         @map("trial_end") @db.Date
+  zoomRegistrantId String?          @map("zoom_registrant_id")
+  zoomJoinUrl      String?          @map("zoom_join_url")
+  linkSentAt       DateTime?        @map("link_sent_at")
+  paidAt           DateTime?        @map("paid_at")
+  cancelledAt      DateTime?        @map("cancelled_at")
+  cancelReason     String?          @map("cancel_reason")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  lead     Lead      @relation(fields: [leadId], references: [id])
+  batch    Batch     @relation(fields: [batchId], references: [id])
+  payments Payment[]
+
+  @@unique([leadId, batchId])
+  @@index([batchId, status])
+  @@map("enrollments")
+}
+
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  enrollmentId      String        @map("enrollment_id") @db.Uuid
+  amountPaise       Int           @map("amount_paise")
+  method            PaymentMethod
+  razorpayLinkId    String?       @map("razorpay_link_id")
+  razorpayLinkUrl   String?       @map("razorpay_link_url")
+  razorpayPaymentId String?       @unique @map("razorpay_payment_id")
+  status            PaymentStatus
+  linkExpiresAt     DateTime?     @map("link_expires_at")
+  paidAt            DateTime?     @map("paid_at")
+  recordedById      String?       @map("recorded_by_id") @db.Uuid
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id])
+  recordedBy User?      @relation(fields: [recordedById], references: [id])
+
+  @@index([enrollmentId])
+  @@map("payments")
+}
+
+model Message {
+  id           String           @id @default(uuid()) @db.Uuid
+  leadId       String           @map("lead_id") @db.Uuid
+  direction    MessageDirection
+  /// null while QUEUED
+  waMessageId  String?          @unique @map("wa_message_id")
+  type         MessageType
+  templateName String?          @map("template_name")
+  body         Json
+  status       MessageStatus
+  errorCode    String?          @map("error_code")
+  /// "bot" | "cron" | "lead" | user id
+  sentBy       String           @map("sent_by")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+  @@map("messages")
+}
+
+model WebhookEvent {
+  id          BigInt          @id @default(autoincrement())
+  provider    WebhookProvider
+  eventKey    String          @unique @map("event_key")
+  payload     Json
+  processedAt DateTime?       @map("processed_at")
+  error       String?
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@map("webhook_events")
+}
+
+model Job {
+  id        BigInt    @id @default(autoincrement())
+  type      String
+  payload   Json
+  runAt     DateTime  @default(now()) @map("run_at")
+  attempts  Int       @default(0)
+  status    JobStatus @default(PENDING)
+  lastError String?   @map("last_error")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, runAt])
+  @@map("jobs")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  assignedLeads    Lead[]
+  recordedPayments Payment[]
+
+  @@map("users")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}

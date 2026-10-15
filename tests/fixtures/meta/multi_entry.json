@@ -1,0 +1,64 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000000",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "919000000000",
+              "phone_number_id": "110000000000000"
+            },
+            "contacts": [
+              { "profile": { "name": "Aarav" }, "wa_id": "919810000001" },
+              { "profile": { "name": "Meera" }, "wa_id": "919810000002" }
+            ],
+            "messages": [
+              {
+                "from": "919810000001",
+                "id": "wamid.M1",
+                "timestamp": "1792058400",
+                "type": "text",
+                "text": { "body": "Hi" }
+              },
+              {
+                "from": "919810000002",
+                "id": "wamid.M2",
+                "timestamp": "1792058401",
+                "type": "image",
+                "image": { "id": "img1", "mime_type": "image/jpeg" }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "100000000000000",
+      "changes": [
+        { "field": "account_update", "value": { "event": "VERIFIED_ACCOUNT" } },
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "919000000000",
+              "phone_number_id": "110000000000000"
+            },
+            "statuses": [
+              {
+                "id": "wamid.OUT9",
+                "status": "read",
+                "timestamp": "1792058402",
+                "recipient_id": "919810000001"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

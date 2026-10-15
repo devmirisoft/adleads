@@ -1,0 +1,12 @@
+# AdLeads scheduled jobs. Replace DOMAIN and SECRET (= CRON_SECRET in .env), then: crontab crontab.txt
+# Times are the server's local time: set the server timezone to Asia/Kolkata
+# (sudo timedatectl set-timezone Asia/Kolkata) or shift the hours below.
+
+# Job queue: webhooks, Zoom registration, messages, payment links (every minute)
+* * * * *    curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/jobs > /dev/null
+# Bot nudges: re-ask at 3 h / 22 h of silence, drop at 24 h (every 30 min)
+*/30 * * * * curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/nudges > /dev/null
+# Trials: class reminders, payment links, last-day reminders (09:00 IST)
+0 9 * * *    curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/trials > /dev/null
+# Expire unpaid trials (23:30 IST)
+30 23 * * *  curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/expire > /dev/null

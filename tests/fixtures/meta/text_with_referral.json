@@ -1,0 +1,40 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000000",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "919000000000",
+              "phone_number_id": "110000000000000"
+            },
+            "contacts": [{ "profile": { "name": "Rahul Sharma" }, "wa_id": "919812345678" }],
+            "messages": [
+              {
+                "from": "919812345678",
+                "id": "wamid.HBgMOTE5ODEyMzQ1Njc4FQIAEhggQUJDMTIz",
+                "timestamp": "1792058400",
+                "type": "text",
+                "text": { "body": "Hi! I want to know more about this." },
+                "referral": {
+                  "source_url": "https://fb.me/abc",
+                  "source_id": "120210000000001",
+                  "source_type": "ad",
+                  "headline": "Spoken English – Reel 1",
+                  "body": "Live online classes — book a free trial",
+                  "media_type": "image",
+                  "image_url": "https://example.com/ad.jpg",
+                  "ctwa_clid": "ARAkLkA8rmlFeiCktEJQ-QTwRiyYHAFDLMNDBH0CD3qpjd0HR4irJ6LEkR7JwFF4XvnO2E4Nx0-eM-GABDLOPaOdRMv-_zfUQ2a"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

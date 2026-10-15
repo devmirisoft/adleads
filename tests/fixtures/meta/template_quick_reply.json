@@ -1,0 +1,31 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000000",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "919000000000",
+              "phone_number_id": "110000000000000"
+            },
+            "contacts": [{ "profile": { "name": "Ishita Gupta" }, "wa_id": "919810000011" }],
+            "messages": [
+              {
+                "context": { "from": "919000000000", "id": "wamid.TEMPLATE1" },
+                "from": "919810000011",
+                "id": "wamid.QUICK1",
+                "timestamp": "1792058600",
+                "type": "button",
+                "button": { "payload": "book_seat", "text": "Book my seat" }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

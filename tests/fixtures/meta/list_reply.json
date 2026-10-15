@@ -1,0 +1,37 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000000",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "919000000000",
+              "phone_number_id": "110000000000000"
+            },
+            "contacts": [{ "profile": { "name": "Rahul Sharma" }, "wa_id": "919812345678" }],
+            "messages": [
+              {
+                "from": "919812345678",
+                "id": "wamid.LIST1",
+                "timestamp": "1792058450",
+                "type": "interactive",
+                "interactive": {
+                  "type": "list_reply",
+                  "list_reply": {
+                    "id": "00000000-0000-4000-8000-000000000c01",
+                    "title": "Spoken English",
+                    "description": "₹2,999.00 · Speak confidently in 8 weeks."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
