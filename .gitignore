@@ -54,3 +54,7 @@ Thumbs.db
 
 # claude code local settings
 .claude/settings.local.json
+
+# markdown — only README is committed
+*.md
+!README.md
