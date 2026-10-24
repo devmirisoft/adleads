@@ -1,7 +1,7 @@
 'use server';
 import 'server-only';
 import { AuthError, CredentialsSignin } from 'next-auth';
-import { signIn, signOut } from '@/lib/auth';
+import { signIn, signOut, TooManyLoginAttempts } from '@/lib/auth';
 import type { ApiResult } from '@/modules/core/types';
 import { loginSchema, type LoginInput } from '../types';
 
@@ -16,6 +16,9 @@ export async function login(input: LoginInput, callbackUrl?: string): Promise<Ap
     await signIn('credentials', { ...parsed.data, redirectTo: safeCallback(callbackUrl) });
   } catch (e) {
     // CredentialsSignin = authorize() returned null; any other AuthError = it threw (e.g. DB down).
+    if (e instanceof TooManyLoginAttempts) {
+      return { ok: false, error: 'Too many failed sign-ins. Wait 15 minutes, then try again.' };
+    }
     if (e instanceof CredentialsSignin) {
       return {
         ok: false,

@@ -1,6 +1,9 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import { Skeleton } from '@/modules/core/components';
 import { StaffShell } from '../_shell/StaffShell';
+
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 // Every admin page needs the session, so the whole segment streams behind one boundary.
 export default function AdminLayout({ children }: LayoutProps<'/'>) {

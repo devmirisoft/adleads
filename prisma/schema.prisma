@@ -380,3 +380,13 @@ model Setting {
 
   @@map("settings")
 }
+
+/// Failed sign-ins, for per-IP throttling in lib/auth.ts. Rows older than the window are pruned on write.
+model LoginAttempt {
+  id        BigInt   @id @default(autoincrement())
+  ip        String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ip, createdAt])
+  @@map("login_attempts")
+}

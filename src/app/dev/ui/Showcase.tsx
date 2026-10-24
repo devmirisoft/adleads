@@ -81,6 +81,9 @@ const TOKENS = [
   ['card', 'bg-card'],
   ['primary', 'bg-primary'],
   ['primary-foreground', 'bg-primary-foreground'],
+  ['primary-hover', 'bg-primary-hover'],
+  ['highlight', 'bg-highlight'],
+  ['highlight-strong', 'bg-highlight-strong'],
   ['muted', 'bg-muted'],
   ['muted-foreground', 'bg-muted-foreground'],
   ['accent', 'bg-accent'],
@@ -137,6 +140,28 @@ function Components() {
               <span className="text-xs text-muted-foreground">{name}</span>
             </div>
           ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Public site tokens"
+        description="The same tokens inside .theme-site (the marketing pages), plus the xl button."
+      >
+        <div className="theme-site flex flex-col gap-4 rounded-lg bg-background p-4 text-foreground">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+            {TOKENS.map(([name, cls]) => (
+              <div key={name} className="flex flex-col gap-1">
+                <div className={`h-12 rounded-lg border border-border ${cls}`} />
+                <span className="text-xs text-muted-foreground">{name}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="xl">Start your free trial</Button>
+            <Button size="xl" variant="outline">
+              See batches
+            </Button>
+          </div>
         </div>
       </SectionCard>
 

@@ -19,6 +19,7 @@ const TABLES = [
   'jobs',
   'users',
   'settings',
+  'login_attempts',
 ];
 
 /** Empty every table. Refuses unless DATABASE_URL is the test database. */

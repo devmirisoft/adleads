@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import {
   Card,
   CardContent,
@@ -8,7 +9,10 @@ import {
 } from '@/modules/core/components';
 import { LoginForm } from '@/modules/auth';
 
-export const metadata = { title: 'Sign in · AdLeads' };
+export const metadata: Metadata = {
+  title: 'Sign in · AdLeads',
+  robots: { index: false, follow: false },
+};
 
 export default function LoginPage() {
   return (
