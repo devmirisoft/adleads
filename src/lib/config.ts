@@ -14,6 +14,8 @@ const LIVE_ONLY = [
 
 const WA_LIVE_ONLY = ['WA_PHONE_NUMBER_ID', 'WA_BUSINESS_ACCOUNT_ID', 'WA_ACCESS_TOKEN'] as const;
 
+const PUSHER_KEYS = ['PUSHER_APP_ID', 'PUSHER_KEY', 'PUSHER_SECRET', 'PUSHER_CLUSTER'] as const;
+
 const schema = z
   .object({
     DATABASE_URL: z.url(),
@@ -38,11 +40,28 @@ const schema = z
     ZOOM_CLIENT_ID: optional,
     ZOOM_CLIENT_SECRET: optional,
 
+    // Push chat updates to staff browsers. Off: the chat thread polls instead.
+    REALTIME_MODE: z.enum(['off', 'pusher']).default('off'),
+    PUSHER_APP_ID: optional,
+    PUSHER_KEY: optional,
+    PUSHER_SECRET: optional,
+    PUSHER_CLUSTER: optional,
+
     APP_TIMEZONE: z.literal('Asia/Kolkata').default('Asia/Kolkata'),
     SEED_ADMIN_EMAIL: z.email().optional(),
     SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.REALTIME_MODE === 'pusher') {
+      for (const key of PUSHER_KEYS) {
+        if (!env[key])
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: 'required when REALTIME_MODE=pusher',
+          });
+      }
+    }
     if ((env.WA_MODE ?? env.INTEGRATIONS_MODE) === 'live') {
       for (const key of WA_LIVE_ONLY) {
         if (!env[key])
