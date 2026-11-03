@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ComponentProps } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useRealtimeChannel } from '@/lib/realtime/browser';
 import { INBOX_CHANNEL, type RealtimePublicConfig } from '@/lib/realtime/types';
@@ -29,6 +29,12 @@ export function LiveAdminShell({ realtime, unreadCount = 0, ...shell }: Props) {
     }
   }, 1000);
   useRealtimeChannel(realtime, INBOX_CHANNEL, () => void refetch());
+
+  // The proxy only checks that the cookie exists, so it no longer renews it. Auth.js re-issues the
+  // cookie from this endpoint, which keeps the sign-in rolling instead of ending 30 days after login.
+  useEffect(() => {
+    void fetch('/api/auth/session').catch(() => {});
+  }, []);
 
   return (
     <AdminShell {...shell} unreadCount={live.from === unreadCount ? live.count : unreadCount} />

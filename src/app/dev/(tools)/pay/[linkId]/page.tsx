@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { requireUser } from '@/modules/auth';
 import {
   DateTime,
   KeyValueList,
@@ -9,10 +10,13 @@ import {
 } from '@/modules/core/components';
 import { formatPhone } from '@/modules/core/utils';
 import { getPaymentByLinkId } from '@/modules/payments';
+import { devOnly } from '../../../devOnly';
 import { PayButtons } from './PayButtons';
 
 /** Fake Razorpay checkout: what the lead sees when they open the payment link. */
 export default async function DevPayPage({ params }: PageProps<'/dev/pay/[linkId]'>) {
+  devOnly();
+  await requireUser();
   const { linkId } = await params;
   const payment = await getPaymentByLinkId(linkId);
   if (!payment) notFound();

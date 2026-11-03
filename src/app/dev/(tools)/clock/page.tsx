@@ -1,10 +1,12 @@
-import { connection } from 'next/server';
 import { devNowOffsetDays, now } from '@/lib/clock';
+import { requireUser } from '@/modules/auth';
 import { DateTime, PageHeader } from '@/modules/core/components';
+import { devOnly } from '../../devOnly';
 import { ClockControls } from './ClockControls';
 
 export default async function DevClockPage() {
-  await connection(); // shows the current time: render per request
+  devOnly();
+  await requireUser(); // also makes this per request: it shows the current time
   const [offsetDays, appNow] = await Promise.all([devNowOffsetDays(), now()]);
   return (
     <>
