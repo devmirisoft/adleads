@@ -11,6 +11,7 @@ export default async function InboxPage({ searchParams }: PageProps<'/inbox'>) {
   const page = Math.max(1, Number(sp.page) || 1);
   const result = await listInbox({
     assignedToId: sp.view === 'mine' ? user.id : undefined,
+    all: sp.view === 'all',
     page,
     pageSize: PAGE_SIZE,
   });
@@ -19,7 +20,11 @@ export default async function InboxPage({ searchParams }: PageProps<'/inbox'>) {
     <>
       <PageHeader
         title="Inbox"
-        description="Leads waiting for a person: flagged by the bot, or they wrote last"
+        description={
+          sp.view === 'all'
+            ? 'Every lead with a WhatsApp conversation, latest message first'
+            : 'Leads waiting for a person: flagged by the bot, or they wrote last'
+        }
       />
       <InboxTable
         data={result.items}

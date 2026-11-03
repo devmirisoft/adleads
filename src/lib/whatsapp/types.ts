@@ -33,6 +33,11 @@ export class WhatsAppLimitError extends Error {
   name = 'WhatsAppLimitError';
 }
 
+/** Meta rejected a send. The message is "<code>: <title>", safe to store and log. */
+export class WhatsAppApiError extends Error {
+  name = 'WhatsAppApiError';
+}
+
 function check(ok: boolean, message: string) {
   if (!ok) throw new WhatsAppLimitError(message);
 }

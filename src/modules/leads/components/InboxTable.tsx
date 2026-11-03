@@ -20,6 +20,9 @@ import { ResolveButton } from './ResolveButton';
 const preview = (body: unknown) =>
   body && typeof body === 'object' && 'text' in body ? String(body.text ?? '') : '';
 
+const isUnread = (l: LeadListItem) =>
+  l.messages[0]?.direction === 'IN' && l.messages[0].status !== 'READ';
+
 const baseColumns: DataTableColumn<LeadListItem>[] = [
   {
     id: 'lead',
@@ -37,9 +40,7 @@ const baseColumns: DataTableColumn<LeadListItem>[] = [
     cell: ({ row: { original: l } }) => (
       <div className="flex flex-wrap gap-1">
         {l.needsHuman && <StatusBadge status="NEEDS_HUMAN" />}
-        {l.messages[0]?.direction === 'IN' && l.messages[0].status !== 'READ' && (
-          <StatusBadge status="UNREAD" />
-        )}
+        {isUnread(l) && <StatusBadge status="UNREAD" />}
       </div>
     ),
   },
@@ -77,7 +78,8 @@ const withResolve: DataTableColumn<LeadListItem>[] = [
   {
     id: 'actions',
     header: () => <span className="sr-only">Actions</span>,
-    cell: ({ row }) => <ResolveButton leadId={row.original.id} />,
+    cell: ({ row: { original: l } }) =>
+      (l.needsHuman || isUnread(l)) && <ResolveButton leadId={l.id} />,
   },
 ];
 
@@ -97,10 +99,11 @@ export function InboxTable({
   const [view, setView] = useQueryState('view');
   return (
     <div className="flex flex-col gap-4">
-      <Tabs value={view || 'all'} onValueChange={(v) => setView(v === 'all' ? null : v)}>
+      <Tabs value={view || 'needs'} onValueChange={(v) => setView(v === 'needs' ? null : v)}>
         <TabsList>
+          <TabsTrigger value="needs">Needs a person</TabsTrigger>
           <TabsTrigger value="mine">Assigned to me</TabsTrigger>
-          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="all">All conversations</TabsTrigger>
         </TabsList>
       </Tabs>
       <DataTable
@@ -113,11 +116,13 @@ export function InboxTable({
         emptyState={
           <EmptyState
             icon={Inbox}
-            title="Inbox zero"
+            title={view === 'all' ? 'No conversations yet' : 'Inbox zero'}
             description={
-              view === 'mine'
-                ? 'Nothing assigned to you is waiting. Check “All”.'
-                : 'No lead is waiting for a reply.'
+              view === 'all'
+                ? 'Conversations show here once a lead messages on WhatsApp.'
+                : view === 'mine'
+                  ? 'Nothing assigned to you is waiting. Check “Needs a person”.'
+                  : 'No lead is waiting for a reply.'
             }
           />
         }

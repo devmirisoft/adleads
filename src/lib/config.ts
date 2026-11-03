@@ -5,15 +5,14 @@ import { z } from 'zod';
 const optional = z.string().min(1).optional();
 
 const LIVE_ONLY = [
-  'WA_PHONE_NUMBER_ID',
-  'WA_BUSINESS_ACCOUNT_ID',
-  'WA_ACCESS_TOKEN',
   'RAZORPAY_KEY_ID',
   'RAZORPAY_KEY_SECRET',
   'ZOOM_ACCOUNT_ID',
   'ZOOM_CLIENT_ID',
   'ZOOM_CLIENT_SECRET',
 ] as const;
+
+const WA_LIVE_ONLY = ['WA_PHONE_NUMBER_ID', 'WA_BUSINESS_ACCOUNT_ID', 'WA_ACCESS_TOKEN'] as const;
 
 const schema = z
   .object({
@@ -22,6 +21,8 @@ const schema = z
     NEXTAUTH_URL: z.url().optional(),
 
     INTEGRATIONS_MODE: z.enum(['fake', 'live']).default('fake'),
+    // Overrides INTEGRATIONS_MODE for WhatsApp only.
+    WA_MODE: z.enum(['fake', 'live']).optional(),
     // Webhook/cron secrets are needed in fake mode too (dev simulators sign with them).
     WA_APP_SECRET: z.string().min(1),
     WA_VERIFY_TOKEN: z.string().min(1),
@@ -42,6 +43,12 @@ const schema = z
     SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
   })
   .superRefine((env, ctx) => {
+    if ((env.WA_MODE ?? env.INTEGRATIONS_MODE) === 'live') {
+      for (const key of WA_LIVE_ONLY) {
+        if (!env[key])
+          ctx.addIssue({ code: 'custom', path: [key], message: 'required when WA is live' });
+      }
+    }
     if (env.INTEGRATIONS_MODE !== 'live') return;
     for (const key of LIVE_ONLY) {
       if (!env[key])
@@ -65,3 +72,12 @@ if (!parsed.success) {
 
 export const config = parsed.data;
 export type Config = typeof config;
+
+export function isWhatsAppLive(): boolean {
+  return (config.WA_MODE ?? config.INTEGRATIONS_MODE) === 'live';
+}
+
+/** Real WhatsApp but fake Zoom/Razorpay: their links would reach real people, so nothing may send them. */
+export function linksAreFake(): boolean {
+  return isWhatsAppLive() && config.INTEGRATIONS_MODE !== 'live';
+}

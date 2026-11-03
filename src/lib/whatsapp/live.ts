@@ -1,22 +1,94 @@
 import 'server-only';
-import type { WhatsAppClient } from './types';
+import { z } from 'zod';
+import { config } from '../config';
+import {
+  checkButtons,
+  checkList,
+  checkTemplate,
+  checkText,
+  WhatsAppApiError,
+  type SendResult,
+  type WhatsAppClient,
+} from './types';
 
-// TODO(live): WhatsApp Cloud API, using config.WA_PHONE_NUMBER_ID + config.WA_ACCESS_TOKEN.
-//  - Every send: POST https://graph.facebook.com/v21.0/{WA_PHONE_NUMBER_ID}/messages
-//    headers: Authorization: Bearer {WA_ACCESS_TOKEN}; body { messaging_product: "whatsapp", to, … }
-//  - sendText:     type "text", text: { body }
-//  - sendButtons:  type "interactive", interactive: { type: "button", body: { text }, action: { buttons: [{ type: "reply", reply: { id, title } }] } }
-//  - sendList:     type "interactive", interactive: { type: "list", body: { text }, action: { button, sections: [{ rows }] } }
-//  - sendTemplate: type "template", template: { name, language: { code: lang }, components: [{ type: "body", parameters: [{ type: "text", text }] }] }
-//  - Call the check* functions from ./types first; return { waMessageId: response.messages[0].id }.
-//  - Map Graph API errors (e.g. 131047 re-engagement window, 131026 undeliverable) to thrown Errors with the code.
-const notImplemented = (): never => {
-  throw new Error('Not implemented: live WhatsApp adapter');
-};
+// WhatsApp Cloud API. Enforces the same limits as the fake, then POSTs to Meta.
+const MESSAGES_URL = `https://graph.facebook.com/v26.0/${config.WA_PHONE_NUMBER_ID}/messages`;
+const TIMEOUT_MS = 10_000;
+
+const graphResponse = z
+  .object({
+    messages: z.array(z.object({ id: z.string() })).optional(),
+    error: z
+      .object({
+        code: z.number().optional(),
+        message: z.string().optional(),
+        error_user_title: z.string().optional(),
+      })
+      .optional(),
+  })
+  .catch({}); // Non-JSON or unexpected body (e.g. a gateway 502): reported by HTTP status below.
+
+async function send(to: string, message: Record<string, unknown>): Promise<SendResult> {
+  const res = await fetch(MESSAGES_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.WA_ACCESS_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to, ...message }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const { messages, error } = graphResponse.parse(await res.json().catch(() => null));
+  const waMessageId = messages?.[0]?.id;
+  if (res.ok && waMessageId) return { waMessageId };
+
+  const title = (error?.error_user_title ?? error?.message ?? 'No details from Meta')
+    .replace(/^\(#\d+\)\s*/, '') // Graph repeats the code: "(#131030) Recipient…"
+    .replace(/\d{7,}/g, '***'); // This text is stored and logged: never a phone number or id.
+  throw new WhatsAppApiError(`${error?.code ?? `HTTP ${res.status}`}: ${title}`);
+}
 
 export const liveWhatsApp: WhatsAppClient = {
-  sendText: notImplemented,
-  sendButtons: notImplemented,
-  sendList: notImplemented,
-  sendTemplate: notImplemented,
+  async sendText(to, text) {
+    checkText(text);
+    return send(to, { type: 'text', text: { body: text } });
+  },
+  async sendButtons(to, msg) {
+    checkButtons(msg);
+    return send(to, {
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: msg.body },
+        action: { buttons: msg.buttons.map((reply) => ({ type: 'reply', reply })) },
+      },
+    });
+  },
+  async sendList(to, msg) {
+    checkList(msg);
+    return send(to, {
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: msg.body },
+        action: { button: msg.button, sections: [{ rows: msg.rows }] },
+      },
+    });
+  },
+  async sendTemplate(to, name, lang, params) {
+    checkTemplate(name, lang);
+    return send(to, {
+      type: 'template',
+      template: {
+        name,
+        language: { code: lang },
+        // Meta rejects an empty parameter list, so templates without params send no components.
+        ...(params.length && {
+          components: [
+            { type: 'body', parameters: params.map((text) => ({ type: 'text', text })) },
+          ],
+        }),
+      },
+    });
+  },
 };

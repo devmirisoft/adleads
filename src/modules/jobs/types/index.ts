@@ -1,10 +1,4 @@
-export const JOB_TYPES = [
-  'processWebhook',
-  'sendMessage',
-  'zoomRegister',
-  'zoomCancel',
-  'createPaymentLink',
-] as const;
+export const JOB_TYPES = ['processWebhook', 'sendMessage', 'zoomRegister', 'zoomCancel'] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 
 /**

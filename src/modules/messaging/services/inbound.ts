@@ -38,6 +38,9 @@ export async function applyStatus(update: StatusUpdate): Promise<void> {
     where: { id: msg.id },
     data: { status: update.status, ...(update.errorCode && { errorCode: update.errorCode }) },
   });
+  if (update.status === 'FAILED') {
+    await db.lead.update({ where: { id: msg.leadId }, data: { needsHuman: true } }); // puts it in /inbox
+  }
 }
 
 /** A lead's thread for chat views (oldest first), ready to send to the browser. */

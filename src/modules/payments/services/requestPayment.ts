@@ -1,6 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { now } from '@/lib/clock';
+import { linksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { razorpay } from '@/lib/razorpay/client';
 import { formatDate, formatMoney } from '@/modules/core/utils';
@@ -14,6 +15,11 @@ import { getSetting } from '@/modules/settings';
  * PAYMENT_PENDING, and send `trial_payment_reminder`. Safe to retry.
  */
 export async function requestPayment(enrollmentId: string, { actor }: { actor: Actor }) {
+  if (linksAreFake()) {
+    throw new Error(
+      "Razorpay isn't live yet, so no payment link was sent. Collect the payment, then record a manual payment.",
+    );
+  }
   const e = await db.enrollment.findUniqueOrThrow({
     where: { id: enrollmentId },
     include: { lead: true, batch: { include: { course: true } } },

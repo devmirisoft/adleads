@@ -10,6 +10,8 @@ import type { ZoomClient } from './types';
 //      settings: { approval_type: 0 (auto-approve registrants), registration_type: 1 } } → { meetingId: BigInt(id) }
 //  - addRegistrant: POST https://api.zoom.us/v2/meetings/{meetingId}/registrants
 //    body { first_name, last_name, email } → { registrantId: id, joinUrl: join_url }
+//    A retry can re-post the same email. Zoom staff say that keeps the existing registrant_id and
+//    join_url (dev forum, not the API docs): test it, and look the registrant up if it errors instead.
 //  - cancelRegistrant: PUT https://api.zoom.us/v2/meetings/{meetingId}/registrants/status
 //    body { action: "cancel", registrants: [{ id: registrantId }] }
 //  - Treat 404 "registrant not found" on cancel as success (already gone).

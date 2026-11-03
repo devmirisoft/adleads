@@ -1,6 +1,7 @@
 import 'server-only';
 import type { Lead } from '@/generated/prisma/client';
 import { now } from '@/lib/clock';
+import { linksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { assignSeat } from '@/modules/enrollments';
 import { canTransition, transition, upsertLead } from '@/modules/leads';
@@ -41,6 +42,8 @@ const reload = (leadId: string) => db.lead.findUniqueOrThrow({ where: { id: lead
  * Entry point for every inbound WhatsApp message (from the processWebhook job):
  * dedupe → upsert lead → log message → keywords → route by status / current step.
  */
+// ponytail: a process killed after logging the message leaves it unanswered, and the re-run stops at
+// the dedupe. It shows as unread in /inbox and nudges re-ask ASKING leads. Log and reply atomically if that bites.
 export async function handleInbound(msg: InboundMessage): Promise<void> {
   if (await hasMessage(msg.messageId)) return;
   const lead = await upsertLead(msg, await now());
@@ -152,6 +155,12 @@ async function answerStep(lead: Lead, msg: InboundMessage) {
   }
 }
 
+/** Zoom/Razorpay aren't live: no seat and no trial clock yet. Staff book it and send the link by hand. */
+async function handOverBooking(lead: Lead) {
+  await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
+  await sendText(lead.id, 'Our team will send your class link shortly.', { sentBy: 'bot' });
+}
+
 /** All questions answered: QUALIFIED → book the seat (trial link follows via the zoomRegister job). */
 async function finishScript(lead: Lead) {
   await db.lead.update({ where: { id: lead.id }, data: { currentStep: null } });
@@ -161,6 +170,7 @@ async function finishScript(lead: Lead) {
   if (!isUuid(batch?.answerValue)) return handOver(lead);
 
   await transition(lead.id, 'QUALIFIED', { actor: 'bot' });
+  if (linksAreFake()) return handOverBooking(lead);
   const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
   if (result.result === 'waitlisted') {
     await sendText(
@@ -186,6 +196,7 @@ async function waitlisted(lead: Lead, msg: InboundMessage) {
     where: { leadId_questionKey: { leadId: lead.id, questionKey: 'batch' } },
   });
   if (!isUuid(batch?.answerValue)) return handOver(lead);
+  if (linksAreFake()) return handOverBooking(lead);
   const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
   await sendText(
     lead.id,
@@ -222,7 +233,7 @@ async function contextualReply(lead: Lead, msg: InboundMessage) {
           ? payUrl && `Your trial has ended. Pay here to join the batch: ${payUrl}`
           : null;
 
-  if (asksForLink && reply) {
+  if (asksForLink && reply && !linksAreFake()) {
     await sendText(lead.id, reply, { sentBy: 'bot' });
   } else {
     await handOver(lead);

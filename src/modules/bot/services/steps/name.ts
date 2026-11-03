@@ -2,6 +2,7 @@ import 'server-only';
 import { db } from '@/lib/db';
 import { sendText } from '@/modules/messaging';
 import type { BotStep } from '../../types';
+import { isNotAName } from '../../utils';
 import { saveAnswer, sendOptions, withPrefix } from '../shared';
 
 const DEFAULT_NAME = /^[\p{L}\p{M} ]{2,60}$/u;
@@ -21,7 +22,7 @@ export const nameStep: BotStep = {
     const pattern = question.validationRegex
       ? new RegExp(question.validationRegex, 'u')
       : DEFAULT_NAME;
-    if (!pattern.test(name)) {
+    if (!pattern.test(name) || isNotAName(name)) {
       return {
         result: 'retry',
         reason: 'Please reply with just your full name, using letters only (2–60 characters).',

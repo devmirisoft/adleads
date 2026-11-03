@@ -61,6 +61,70 @@ describe('parseMetaWebhook', () => {
     expect(statuses).toEqual([{ waMessageId: 'wamid.OUT9', status: 'READ' }]);
   });
 
+  const webhook = (value: unknown, field = 'messages') => ({
+    object: 'whatsapp_business_account',
+    entry: [{ id: '1', changes: [{ field, value }] }],
+  });
+  const text = (extra: object) => ({
+    id: 'wamid.X',
+    timestamp: '1792058400',
+    type: 'text',
+    text: { body: 'hi' },
+    ...extra,
+  });
+
+  it('keeps a wa_id as sent, even when it looks like a bare Indian mobile', () => {
+    const { messages } = parseMetaWebhook(webhook({ messages: [text({ from: '6591234567' })] }));
+    expect(messages[0].phone).toBe('+6591234567');
+  });
+
+  it('finds the sender of a message without `from` through contacts[].user_id', () => {
+    const { messages, notes } = parseMetaWebhook(
+      webhook({
+        contacts: [{ user_id: 'IN.1', wa_id: '919810000001', profile: { name: 'Aarav' } }],
+        messages: [text({ from_user_id: 'IN.1' })],
+      }),
+    );
+    expect(messages[0]).toMatchObject({ phone: '+919810000001', profileName: 'Aarav' });
+    expect(notes).toEqual([]);
+  });
+
+  it('notes a username-only sender instead of failing, and keeps the rest of the batch', () => {
+    const { messages, notes } = parseMetaWebhook(
+      webhook({
+        contacts: [{ user_id: 'IN.1', profile: { name: 'No number' } }],
+        messages: [
+          text({ id: 'wamid.A', from_user_id: 'IN.1' }),
+          { garbage: true },
+          text({ id: 'wamid.B', from: '919810000002' }),
+        ],
+      }),
+    );
+    expect(messages.map((m) => m.messageId)).toEqual(['wamid.B']);
+    expect(notes).toEqual([
+      'Skipped a message with no usable phone number',
+      'Skipped a malformed message',
+    ]);
+  });
+
+  it('notes other fields whatever their shape, and tolerates missing contacts', () => {
+    expect(parseMetaWebhook(webhook({ contacts: 'not a list' }, 'calls'))).toEqual({
+      messages: [],
+      statuses: [],
+      notes: ['Ignored field: calls'],
+    });
+    const { messages } = parseMetaWebhook(webhook({ messages: [text({ from: '919810000001' })] }));
+    expect(messages).toHaveLength(1);
+  });
+
+  it('a referral in an unexpected shape does not lose the message', () => {
+    const { messages } = parseMetaWebhook(
+      webhook({ messages: [text({ from: '919810000001', referral: { headline: 'no id' } })] }),
+    );
+    expect(messages[0]).toMatchObject({ text: 'hi' });
+    expect(messages[0].referral).toBeUndefined();
+  });
+
   it('rejects payloads that are not WhatsApp webhooks', () => {
     expect(() => parseMetaWebhook({ object: 'page', entry: [] })).toThrow();
   });
@@ -85,5 +149,34 @@ describe('metaEventKey', () => {
     const payload = fixture('multi_entry');
     expect(metaEventKey(payload, '')).toBe('meta:wamid.M1,wamid.M2,wamid.OUT9:READ');
     expect(metaEventKey({ object: 'page' }, 'x')).toMatch(/^meta:sha256:[0-9a-f]{64}$/);
+  });
+
+  it('gives two senders different keys and hashes a batch too long for the unique index', () => {
+    const batch = (ids: string[]) => ({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messages: ids.map((id) => ({
+                  from: '919810000001',
+                  id,
+                  timestamp: '1',
+                  type: 'text',
+                })),
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(metaEventKey(batch(['wamid.A']), 'same')).not.toBe(
+      metaEventKey(batch(['wamid.B']), 'same'),
+    );
+    const many = Array.from({ length: 50 }, (_, i) => `wamid.${'x'.repeat(70)}${i}`);
+    expect(metaEventKey(batch(many), '')).toMatch(/^meta:sha256:[0-9a-f]{64}$/);
+    expect(metaEventKey(batch(many), '')).not.toBe(metaEventKey(batch(many.slice(1)), ''));
   });
 });

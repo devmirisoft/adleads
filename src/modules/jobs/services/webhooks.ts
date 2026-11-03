@@ -13,10 +13,13 @@ export async function recordWebhook(
   payload: Prisma.InputJsonValue,
 ): Promise<{ duplicate: boolean }> {
   try {
-    await db.$transaction(async (tx) => {
-      const event = await tx.webhookEvent.create({ data: { provider, eventKey, payload } });
-      await enqueue('processWebhook', { webhookEventId: String(event.id) }, { tx });
-    });
+    await db.$transaction(
+      async (tx) => {
+        const event = await tx.webhookEvent.create({ data: { provider, eventKey, payload } });
+        await enqueue('processWebhook', { webhookEventId: String(event.id) }, { tx });
+      },
+      { maxWait: 5000, timeout: 10000 },
+    );
     return { duplicate: false };
   } catch (e) {
     if (isUniqueViolation(e)) return { duplicate: true };
@@ -32,5 +35,13 @@ export async function markWebhookProcessed(id: string, error?: string) {
   await db.webhookEvent.update({
     where: { id: BigInt(id) },
     data: error ? { error } : { processedAt: new Date(), error: null },
+  });
+}
+
+/** Processed, nothing to retry; `note` says what was ignored. processed_at tells it apart from an error. */
+export async function markWebhookNoted(id: string, note: string) {
+  await db.webhookEvent.update({
+    where: { id: BigInt(id) },
+    data: { processedAt: new Date(), error: note },
   });
 }

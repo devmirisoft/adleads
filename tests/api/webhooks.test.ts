@@ -1,11 +1,18 @@
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { NextRequest } from 'next/server';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from '@/app/api/webhooks/whatsapp/route';
 import { POST as razorpayPOST } from '@/app/api/webhooks/razorpay/route';
-import { POST as cronJobs } from '@/app/api/cron/jobs/route';
-import { db, hasTestDb, resetDb } from '../helpers/db';
+import { GET as cronJobsGet, POST as cronJobs } from '@/app/api/cron/jobs/route';
+import { db, hasTestDb, resetDb, seedBasics } from '../helpers/db';
+
+// `after` needs a live Next request. Capture the callback so a test can run it "after the response".
+const afterTasks = vi.hoisted(() => [] as (() => Promise<void>)[]);
+vi.mock('next/server', async (original) => ({
+  ...(await original<typeof import('next/server')>()),
+  after: (task: () => Promise<void>) => afterTasks.push(task),
+}));
 
 const body = readFileSync(
   new URL('../fixtures/meta/text_with_referral.json', import.meta.url),
@@ -34,7 +41,10 @@ describe('GET /api/webhooks/whatsapp (Meta handshake)', () => {
 });
 
 describe.skipIf(!hasTestDb)('webhook POSTs: verify → store → 200', () => {
-  beforeEach(resetDb);
+  beforeEach(async () => {
+    afterTasks.length = 0;
+    await resetDb();
+  });
 
   it('WhatsApp: bad signature → 401, nothing stored', async () => {
     const res = await POST(
@@ -56,6 +66,13 @@ describe.skipIf(!hasTestDb)('webhook POSTs: verify → store → 200', () => {
     });
     expect(await db.job.count({ where: { type: 'processWebhook' } })).toBe(1);
     expect(await db.lead.count()).toBe(0); // no work inside the request
+
+    // …it runs right after the response, once: the retry was a duplicate.
+    expect(afterTasks).toHaveLength(1);
+    await seedBasics();
+    await afterTasks[0]();
+    expect(await db.lead.count()).toBe(1);
+    expect(await db.job.count({ where: { type: 'processWebhook', status: 'DONE' } })).toBe(1);
   });
 
   it('Razorpay: checks x-razorpay-signature and dedupes on the event id', async () => {
@@ -71,6 +88,14 @@ describe.skipIf(!hasTestDb)('webhook POSTs: verify → store → 200', () => {
     for (let i = 0; i < 2; i++)
       expect((await razorpayPOST(post('http://x', raw, headers))).status).toBe(200);
     expect(await db.webhookEvent.count({ where: { eventKey: 'razorpay:evt_1' } })).toBe(1);
+  });
+
+  it('the jobs cron also answers Vercel Cron: GET with a bearer token', async () => {
+    const get = (headers: Record<string, string>) =>
+      cronJobsGet(new Request('http://x', { headers }));
+    expect((await get({})).status).toBe(401);
+    const ok = await get({ authorization: `Bearer ${process.env.CRON_SECRET!}` });
+    expect(ok.status).toBe(200);
   });
 
   it('cron routes need x-cron-secret', async () => {

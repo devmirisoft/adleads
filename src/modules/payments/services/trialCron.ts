@@ -1,5 +1,6 @@
 import 'server-only';
 import { now } from '@/lib/clock';
+import { linksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { addDays, istDate } from '@/modules/core/utils';
 import { expire, firstName, sendClassReminders } from '@/modules/enrollments';
@@ -27,6 +28,11 @@ async function each<T extends { id: string }>(items: T[], run: (item: T) => Prom
  * (or later, for short/extended trials), and the last-day reminder.
  */
 export async function runTrialsCron() {
+  // Every message here carries a Zoom or Razorpay link.
+  if (linksAreFake()) {
+    const skipped: CronResult = { done: 0, failed: [] };
+    return { classReminders: 0, paymentRequests: skipped, lastDayReminders: skipped };
+  }
   const today = istDate(await now());
   const daysBefore = await getSetting('reminder_days_before');
 

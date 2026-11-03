@@ -1,5 +1,6 @@
 import 'server-only';
 import type { PaymentMethod } from '@/generated/prisma/client';
+import { linksAreFake } from '@/lib/config';
 import { db, isUniqueViolation } from '@/lib/db';
 import { formatMoney } from '@/modules/core/utils';
 import { ensureRegistered, firstName, reclaimSeat } from '@/modules/enrollments';
@@ -69,7 +70,7 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
 
   const wasExpired = e.status === 'EXPIRED';
   // Zoom stays outside the transaction; it's idempotent, so a retry after a failure is safe.
-  const joinUrl = await ensureRegistered(e.id);
+  const joinUrl = linksAreFake() ? null : await ensureRegistered(e.id);
   let overbooked = false;
   try {
     await db.$transaction(async (tx) => {
@@ -105,7 +106,16 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
       `re-enrolled after expiry into ${e.batch.name}, which is now over capacity.`,
     );
   }
+  if (!joinUrl) {
+    await needsReview(
+      e.leadId,
+      `enrolled in ${e.batch.name}, but Zoom isn't live yet. Send the class link in the chat.`,
+    );
+    return 'enrolled';
+  }
 
+  // ponytail: a process killed before this send leaves them enrolled with no confirmation, and the
+  // re-run stops at 'duplicate'; staff have "Resend class link". Queue it inside the transaction if that bites.
   try {
     await sendTemplate(
       e.leadId,

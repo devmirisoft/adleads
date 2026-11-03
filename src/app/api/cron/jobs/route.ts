@@ -7,3 +7,6 @@ export async function POST(req: Request) {
   if (!isCronRequest(req)) return unauthorized();
   return Response.json(await runDue(jobHandlers, 50));
 }
+
+// Vercel Cron sends GET.
+export const GET = POST;

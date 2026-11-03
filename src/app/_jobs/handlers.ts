@@ -4,6 +4,7 @@ import { handleInbound } from '@/modules/bot';
 import { cancelRegistrant, sendTrialLink } from '@/modules/enrollments';
 import {
   getWebhookEvent,
+  markWebhookNoted,
   markWebhookProcessed,
   runDue,
   type JobHandlers,
@@ -16,12 +17,29 @@ import {
   TEMPLATE_NAMES,
   type TemplateName,
 } from '@/modules/messaging';
-import { handleRazorpayEvent, requestPayment } from '@/modules/payments';
+import { handleRazorpayEvent } from '@/modules/payments';
 
 // Composition root: job type → feature module. Lives in the app layer so the jobs module
 // stays generic and no module has to import bot/payments/enrollments sideways.
 
 const id = z.object({ enrollmentId: z.uuid() });
+
+/** Returns a note if anything was ignored. Only real failures throw, and those retry. */
+async function processMetaEvent(payload: unknown): Promise<string | undefined> {
+  let parsed: ReturnType<typeof parseMetaWebhook>;
+  try {
+    parsed = parseMetaWebhook(payload);
+  } catch {
+    return 'Not a WhatsApp Business webhook';
+  }
+  // One failure must not hold back the rest of the batch. Retrying the whole event is safe:
+  // messages dedupe on wa_message_id and statuses only move forward.
+  const failures: unknown[] = [];
+  for (const m of parsed.messages) await handleInbound(m).catch((e) => failures.push(e));
+  for (const s of parsed.statuses) await applyStatus(s).catch((e) => failures.push(e));
+  if (failures.length) throw failures[0];
+  return parsed.notes.join('; ') || undefined;
+}
 
 export const jobHandlers: JobHandlers = {
   async processWebhook(payload) {
@@ -30,9 +48,8 @@ export const jobHandlers: JobHandlers = {
     if (event.processedAt) return;
     try {
       if (event.provider === 'META') {
-        const { messages, statuses } = parseMetaWebhook(event.payload);
-        for (const m of messages) await handleInbound(m); // each dedupes on wa_message_id
-        for (const s of statuses) await applyStatus(s);
+        const note = await processMetaEvent(event.payload);
+        if (note) return await markWebhookNoted(webhookEventId, note);
       } else if (event.provider === 'RAZORPAY') {
         await handleRazorpayEvent(event.payload);
       }
@@ -57,16 +74,12 @@ export const jobHandlers: JobHandlers = {
   },
 
   async zoomRegister(payload) {
-    await sendTrialLink(id.parse(payload).enrollmentId);
+    await sendTrialLink(id.parse(payload).enrollmentId, { once: true });
   },
 
   async zoomCancel(payload) {
     const p = z.object({ meetingId: z.string(), registrantId: z.string() }).parse(payload);
     await cancelRegistrant(BigInt(p.meetingId), p.registrantId);
-  },
-
-  async createPaymentLink(payload) {
-    await requestPayment(id.parse(payload).enrollmentId, { actor: 'cron' });
   },
 };
 

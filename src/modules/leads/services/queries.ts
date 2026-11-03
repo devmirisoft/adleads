@@ -126,40 +126,47 @@ export type LeadDetail = NonNullable<Awaited<ReturnType<typeof getLeadDetail>>>;
 
 // Inbox = needs a human, or the lead spoke last and nobody (bot or staff) has replied or
 // resolved it yet. Resolving marks their inbound messages READ.
-const inboxWhere = (assignedToId?: string) => Prisma.sql`
+// `all` widens it to every lead with at least one message, opted-out leads included.
+const inboxWhere = (assignedToId?: string, all = false) => Prisma.sql`
   FROM leads l
   LEFT JOIN LATERAL (
     SELECT m.direction, m.status, m.created_at FROM messages m
     WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1
   ) last ON true
-  WHERE (l.needs_human OR (last.direction = 'IN' AND last.status <> 'READ'))
-    AND l.status <> 'OPTED_OUT'
+  WHERE ${
+    all
+      ? Prisma.sql`last.direction IS NOT NULL`
+      : Prisma.sql`(l.needs_human OR (last.direction = 'IN' AND last.status <> 'READ'))
+    AND l.status <> 'OPTED_OUT'`
+  }
     ${assignedToId ? Prisma.sql`AND l.assigned_to_id = ${assignedToId}::uuid` : Prisma.empty}`;
 
 export async function listInbox({
   assignedToId,
+  all = false,
   page = 1,
   pageSize = 25,
 }: {
   assignedToId?: string;
+  all?: boolean;
   page?: number;
   pageSize?: number;
 }): Promise<Paginated<LeadListItem>> {
   const rows = await db.$queryRaw<{ id: string }[]>`
-    SELECT l.id ${inboxWhere(assignedToId)}
+    SELECT l.id ${inboxWhere(assignedToId, all)}
     ORDER BY COALESCE(last.created_at, l.updated_at) DESC
     LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
   const [leads, total] = await Promise.all([
     db.lead.findMany({ where: { id: { in: rows.map((r) => r.id) } }, include: listInclude }),
-    countInbox(assignedToId),
+    countInbox(assignedToId, all),
   ]);
   const byId = new Map(leads.map((l) => [l.id, l]));
   return { items: rows.map((r) => byId.get(r.id)!), total, page, pageSize };
 }
 
-/** Nav badge count. */
-export async function countInbox(assignedToId?: string): Promise<number> {
+/** Called with no arguments, this is the nav badge count. */
+export async function countInbox(assignedToId?: string, all = false): Promise<number> {
   const [{ count }] = await db.$queryRaw<{ count: bigint }[]>`
-    SELECT count(*) AS count ${inboxWhere(assignedToId)}`;
+    SELECT count(*) AS count ${inboxWhere(assignedToId, all)}`;
   return Number(count);
 }

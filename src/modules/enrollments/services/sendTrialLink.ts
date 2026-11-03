@@ -1,4 +1,5 @@
 import 'server-only';
+import { linksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { zoom } from '@/lib/zoom/client';
 import { formatDate, formatDays, formatTime } from '@/modules/core/utils';
@@ -33,13 +34,22 @@ export async function ensureRegistered(enrollmentId: string): Promise<string> {
   return joinUrl;
 }
 
-/** Job `zoomRegister`: register on Zoom, then send the personal trial link (template if outside 24 h). */
-export async function sendTrialLink(enrollmentId: string) {
+/**
+ * Register on Zoom, then send the personal trial link (template if outside 24 h).
+ * `once` (job `zoomRegister`) skips a link that already went out, so a re-run doesn't message twice.
+ * assignSeat and moveBatch clear linkSentAt when a new link is due. Without it: "Resend class link".
+ */
+export async function sendTrialLink(enrollmentId: string, { once = false } = {}) {
   const e = await db.enrollment.findUniqueOrThrow({
     where: { id: enrollmentId },
     include: { lead: true, batch: true },
   });
   if (e.status !== 'TRIAL' && e.status !== 'PAID') return; // cancelled/expired meanwhile
+  if (once && e.linkSentAt) return;
+  // Staff see this on "Resend link"; as a job it retries, then flags the lead for staff.
+  if (linksAreFake()) {
+    throw new Error("Zoom isn't live yet, so no link was sent. Send the class link in the chat.");
+  }
 
   const joinUrl = await ensureRegistered(enrollmentId);
   const name = firstName(e.lead);

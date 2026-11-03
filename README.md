@@ -87,6 +87,10 @@ Before committing: `npm run lint`, `npx tsc --noEmit`, `npm test`.
 - Build and run: `npm run build && npm start` (PM2: `ecosystem.config.js`).
 - Scheduled jobs: install `crontab.txt` (replace `DOMAIN` and `SECRET`; server timezone Asia/Kolkata).
 - Webhook URLs: `/api/webhooks/whatsapp` (Meta: GET handshake + POST), `/api/webhooks/razorpay`.
-  Both verify signatures, store the event and return 200; the work happens in `/api/cron/jobs`.
-- Going live: implement the `live.ts` adapters in `src/lib/{whatsapp,zoom,razorpay}` (each lists the API
+  Both verify signatures, store the event and return 200; the work happens in `/api/cron/jobs`
+  (and, for WhatsApp, right after the response).
+- Going live: implement the `live.ts` adapters in `src/lib/{zoom,razorpay}` (each lists the API
   calls to make), fill in the API keys, and set `INTEGRATIONS_MODE=live`. Nothing else changes.
+  WhatsApp's adapter is done: `WA_MODE=live` turns on real WhatsApp alone. Until
+  `INTEGRATIONS_MODE=live` too, no Zoom or Razorpay link is sent: the bot stops at confirm and
+  hands the lead to staff, who book the seat and send the class link in the chat.

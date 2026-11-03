@@ -6,6 +6,7 @@ import { recordWebhook } from '@/modules/jobs';
 import {
   buildMetaPayload,
   metaEventKey,
+  sendText,
   type MessageBody,
   type SimulatedInbound,
 } from '@/modules/messaging';
@@ -89,6 +90,74 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     expect((await lastOut()).text).toContain(e.zoomJoinUrl!);
     const answers = await db.answer.findMany({ where: { leadId: l.id } });
     expect(answers.map((a) => a.questionKey).sort()).toEqual(['batch', 'course', 'name']);
+  });
+
+  it('two senders in one batch become two separate leads and threads', async () => {
+    await deliver(fixture('multi_entry'));
+    const leads = await db.lead.findMany({
+      include: { messages: { where: { direction: 'IN' } } },
+      orderBy: { phoneE164: 'asc' },
+    });
+    expect(leads.map((l) => [l.phoneE164, l.messages.length])).toEqual([
+      ['+919810000001', 1],
+      ['+919810000002', 1],
+    ]);
+  });
+
+  it('events with nothing to do are processed with a note and never retried', async () => {
+    await deliver({
+      object: 'whatsapp_business_account',
+      entry: [{ changes: [{ field: 'calls', value: { calls: [{ id: 'c1' }] } }] }],
+    });
+    await deliver({ object: 'page', entry: [] });
+    const events = await db.webhookEvent.findMany({ orderBy: { id: 'asc' } });
+    expect(events.map((e) => [!!e.processedAt, e.error])).toEqual([
+      [true, 'Ignored field: calls'],
+      [true, 'Not a WhatsApp Business webhook'],
+    ]);
+    expect(await db.job.count({ where: { status: { not: 'DONE' } } })).toBe(0);
+  });
+
+  it('a failed send keeps the reason on the message and puts the lead in the inbox', async () => {
+    await deliver(fixture('text_with_referral'));
+    const { id } = await lead();
+    expect((await lead()).needsHuman).toBe(false);
+
+    // Rejected on the way out (the fake enforces Meta's limits).
+    await expect(sendText(id, 'x'.repeat(5000), { sentBy: 'bot' })).rejects.toThrow();
+    const failed = await db.message.findFirstOrThrow({ where: { leadId: id, status: 'FAILED' } });
+    expect(failed.errorCode).toContain('WhatsAppLimitError');
+    expect((await lead()).needsHuman).toBe(true);
+
+    // Rejected later, by a delivery receipt.
+    await db.lead.update({ where: { id }, data: { needsHuman: false } });
+    const sent = await db.message.findFirstOrThrow({ where: { leadId: id, status: 'SENT' } });
+    await deliver({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                statuses: [
+                  {
+                    id: sent.waMessageId,
+                    status: 'failed',
+                    errors: [{ code: 131026, title: 'Message undeliverable' }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(await db.message.findUniqueOrThrow({ where: { id: sent.id } })).toMatchObject({
+      status: 'FAILED',
+      errorCode: '131026: Message undeliverable',
+    });
+    expect((await lead()).needsHuman).toBe(true);
   });
 
   it('invalid name: hint first, then hands over to a human', async () => {

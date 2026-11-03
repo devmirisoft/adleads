@@ -57,6 +57,7 @@ async function deliver(
     const errorCode =
       e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 500) : 'Unknown error';
     await db.message.update({ where: { id: row.id }, data: { status: 'FAILED', errorCode } });
+    await db.lead.update({ where: { id: leadId }, data: { needsHuman: true } }); // puts it in /inbox
     throw e;
   }
 }

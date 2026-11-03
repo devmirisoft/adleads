@@ -16,8 +16,9 @@ export const proxy = auth((req) => {
 // Public: /login, Auth.js endpoints, provider webhooks, cron (own secret), Next internals, files with an extension,
 // and the marketing pages: exactly /, /privacy, /terms, /refund-policy, /contact (`.+` leaves out the bare "/").
 // tests/lib/proxy.test.ts checks this list.
+// TEMP: api/diag is exempt only while diagnosing the webhook; remove it with src/app/api/diag.
 export const config = {
   matcher: [
-    '/((?!login|api/auth|api/webhooks|api/cron|_next/|.*\\..*|(?:privacy|terms|refund-policy|contact)$).+)',
+    '/((?!login|api/auth|api/webhooks|api/cron|api/diag|_next/|.*\\..*|(?:privacy|terms|refund-policy|contact)$).+)',
   ],
 };
