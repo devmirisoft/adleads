@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fakeWhatsApp } from '@/lib/whatsapp/fake';
 import { WhatsAppLimitError } from '@/lib/whatsapp/types';
 
@@ -10,6 +10,14 @@ const rows = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ id: `r${i}`, title: `Row ${i}` }));
 
 describe('fake WhatsApp client', () => {
+  it('read receipts and typing are logged no-ops, and the log holds no message id', async () => {
+    const log = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    await expect(fakeWhatsApp.markRead('wamid.SECRET')).resolves.toBeUndefined();
+    await expect(fakeWhatsApp.markRead('wamid.SECRET', { typing: true })).resolves.toBeUndefined();
+    expect(log.mock.calls).toEqual([['[wa:fake] read'], ['[wa:fake] typing']]);
+    log.mockRestore();
+  });
+
   it('returns a fake wamid for valid messages', async () => {
     const { waMessageId } = await fakeWhatsApp.sendText(to, 'Hi');
     expect(waMessageId).toMatch(/^wamid\.fake\.[0-9a-f-]{36}$/);

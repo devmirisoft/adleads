@@ -93,6 +93,38 @@ describe('live WhatsApp client', () => {
     await expect(liveWhatsApp.sendText(to, 'Hi')).rejects.toThrow('HTTP 502: No details from Meta');
   });
 
+  it('marks a message read with exactly the payload Meta documents', async () => {
+    const sent = stubGraph(200, JSON.stringify({ success: true }));
+    await expect(liveWhatsApp.markRead('wamid.IN')).resolves.toBeUndefined();
+    expect(sent().url).toBe('https://graph.facebook.com/v26.0/PNID/messages');
+    expect(sent().body).toEqual({
+      messaging_product: 'whatsapp',
+      status: 'read',
+      message_id: 'wamid.IN',
+    });
+  });
+
+  it('adds the typing indicator to the same read call', async () => {
+    const sent = stubGraph(200, JSON.stringify({ success: true }));
+    await liveWhatsApp.markRead('wamid.IN', { typing: true });
+    expect(sent().body).toEqual({
+      messaging_product: 'whatsapp',
+      status: 'read',
+      message_id: 'wamid.IN',
+      typing_indicator: { type: 'text' },
+    });
+  });
+
+  it('reports a failed read receipt with phone numbers masked', async () => {
+    stubGraph(400, JSON.stringify({ error: { code: 100, message: `Bad id for ${to}` } }));
+    await expect(liveWhatsApp.markRead('wamid.IN')).rejects.toThrow('100: Bad id for ***');
+  });
+
+  it('treats a send Meta accepted without a message id as a failure', async () => {
+    stubGraph(200, JSON.stringify({ success: true }));
+    await expect(liveWhatsApp.sendText(to, 'Hi')).rejects.toBeInstanceOf(WhatsAppApiError);
+  });
+
   it('enforces the limits before calling Meta', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);

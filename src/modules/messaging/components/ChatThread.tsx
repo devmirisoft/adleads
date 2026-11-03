@@ -1,6 +1,6 @@
 'use client';
 
-import { startTransition, useOptimistic, useState } from 'react';
+import { startTransition, useEffect, useOptimistic, useState } from 'react';
 import { unstable_rethrow } from 'next/navigation';
 import { ArrowDown, MessageCircle } from 'lucide-react';
 import { leadChannel, type RealtimePublicConfig } from '@/lib/realtime/types';
@@ -30,7 +30,7 @@ import { ReplyBox, type TemplateOption } from './ReplyBox';
 type Props = {
   leadId: string;
   initial: ChatPage;
-  /** May reply and retry. VIEWER only watches. */
+  /** May reply, retry and send read receipts. VIEWER only watches. */
   canAct: boolean;
   windowOpen: boolean;
   optedOut: boolean;
@@ -39,6 +39,14 @@ type Props = {
 };
 
 type Draft = Pick<ChatMessage, 'type' | 'templateName' | 'body'>;
+
+function presence(leadId: string, action: 'read' | 'typing') {
+  void fetch(`/api/admin/leads/${leadId}/presence`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action }),
+  }).catch(() => {}); // only a courtesy to the lead's phone
+}
 
 /** A lead's WhatsApp thread and the reply box that feeds it: instant sends, live ticks, no jumping. */
 export function ChatThread({
@@ -67,6 +75,10 @@ export function ChatThread({
     () => initial.messages.findLast((m) => m.direction === 'IN')?.id,
   );
   const newestInbound = messages.findLast((m) => m.direction === 'IN')?.id;
+
+  useEffect(() => {
+    if (canAct && unreadKey) presence(leadId, 'read');
+  }, [leadId, canAct, unreadKey]);
 
   async function loadOlder() {
     if (loadingOlder || !hasMore || !messages[0]) return;
@@ -215,6 +227,7 @@ export function ChatThread({
             templates={templates}
             onSendText={sendText}
             onSendTemplate={sendTemplate}
+            onTyping={() => presence(leadId, 'typing')}
           />
         </>
       )}

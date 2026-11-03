@@ -16,6 +16,8 @@ import type { TemplateName } from '../constants/templates';
 
 export type TemplateOption = { name: TemplateName; preview: string; vars: Record<string, string> };
 
+const TYPING_EVERY_MS = 20_000; // Meta's indicator lasts 25 s
+
 type Props = {
   /** Lead wrote within the last 24 h: free-form allowed. */
   windowOpen: boolean;
@@ -24,13 +26,22 @@ type Props = {
   templates: TemplateOption[];
   onSendText: (text: string) => void;
   onSendTemplate: (template: TemplateOption) => void;
+  onTyping: () => void;
 };
 
 /** The composer. Sends never block it: the bubble appears in the thread, so it's ready for the next one. */
-export function ReplyBox({ windowOpen, optedOut, templates, onSendText, onSendTemplate }: Props) {
+export function ReplyBox({
+  windowOpen,
+  optedOut,
+  templates,
+  onSendText,
+  onSendTemplate,
+  onTyping,
+}: Props) {
   const [text, setText] = useState('');
   const [template, setTemplate] = useState<TemplateName | ''>('');
   const input = useRef<HTMLTextAreaElement>(null);
+  const lastTyping = useRef(0);
 
   if (optedOut) {
     return (
@@ -64,7 +75,13 @@ export function ReplyBox({ windowOpen, optedOut, templates, onSendText, onSendTe
               ref={input}
               rows={2}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                if (e.target.value.trim() && Date.now() - lastTyping.current > TYPING_EVERY_MS) {
+                  lastTyping.current = Date.now();
+                  onTyping();
+                }
+              }}
               onKeyDown={(e) => {
                 // isComposing: Enter is confirming a word in a Hindi or other IME, not sending.
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

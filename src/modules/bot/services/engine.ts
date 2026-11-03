@@ -10,6 +10,7 @@ import {
   hasMessage,
   recordInbound,
   sendText,
+  showTyping,
   type InboundMessage,
   type MessageBody,
 } from '@/modules/messaging';
@@ -51,6 +52,9 @@ export async function handleInbound(msg: InboundMessage): Promise<void> {
   if (!(await recordInbound(lead.id, msg))) return; // a parallel delivery got here first
   if (lead.optedOutAt) return; // keep the log, never reply
 
+  // Not once staff have the chat: the bot mostly stays quiet then, and Meta says to show it only
+  // before a reply. Awaited, not fired alongside: landing after the reply, it would linger for 25 s.
+  if (!lead.needsHuman) await showTyping(lead.id);
   if (await handleKeyword(lead, msg)) return;
 
   switch (lead.status) {

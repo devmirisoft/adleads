@@ -14,6 +14,7 @@ import {
 // WhatsApp Cloud API. Enforces the same limits as the fake, then POSTs to Meta.
 const MESSAGES_URL = `https://graph.facebook.com/v26.0/${config.WA_PHONE_NUMBER_ID}/messages`;
 const TIMEOUT_MS = 10_000;
+const RECEIPT_TIMEOUT_MS = 3_000; // best effort, and a bot reply waits behind it
 
 const graphResponse = z
   .object({
@@ -28,24 +29,30 @@ const graphResponse = z
   })
   .catch({}); // Non-JSON or unexpected body (e.g. a gateway 502): reported by HTTP status below.
 
-async function send(to: string, message: Record<string, unknown>): Promise<SendResult> {
+async function post(payload: Record<string, unknown>, timeoutMs: number) {
   const res = await fetch(MESSAGES_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.WA_ACCESS_TOKEN}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ messaging_product: 'whatsapp', to, ...message }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    body: JSON.stringify({ messaging_product: 'whatsapp', ...payload }),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const { messages, error } = graphResponse.parse(await res.json().catch(() => null));
-  const waMessageId = messages?.[0]?.id;
-  if (res.ok && waMessageId) return { waMessageId };
+  if (res.ok) return { messages };
 
   const title = (error?.error_user_title ?? error?.message ?? 'No details from Meta')
     .replace(/^\(#\d+\)\s*/, '') // Graph repeats the code: "(#131030) Recipient…"
     .replace(/\d{7,}/g, '***'); // This text is stored and logged: never a phone number or id.
   throw new WhatsAppApiError(`${error?.code ?? `HTTP ${res.status}`}: ${title}`);
+}
+
+async function send(to: string, message: Record<string, unknown>): Promise<SendResult> {
+  const { messages } = await post({ to, ...message }, TIMEOUT_MS);
+  const waMessageId = messages?.[0]?.id;
+  if (waMessageId) return { waMessageId };
+  throw new WhatsAppApiError('No details from Meta: accepted, but no message id came back');
 }
 
 export const liveWhatsApp: WhatsAppClient = {
@@ -90,5 +97,16 @@ export const liveWhatsApp: WhatsAppClient = {
         }),
       },
     });
+  },
+  // Same endpoint as sending; Meta answers { success: true }. One call does both read and typing.
+  async markRead(messageId, opts) {
+    await post(
+      {
+        status: 'read',
+        message_id: messageId,
+        ...(opts?.typing && { typing_indicator: { type: 'text' } }),
+      },
+      RECEIPT_TIMEOUT_MS,
+    );
   },
 };

@@ -1,11 +1,13 @@
 // Public API of this module — import from '@/modules/messaging' only.
 export type * from './types';
 export {
+  markInboundRead,
   OutsideWindowError,
   sendButtons,
   sendList,
   sendTemplate,
   sendText,
+  showTyping,
   type SendOptions,
 } from './services/send';
 export {

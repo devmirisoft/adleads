@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { realtime } from '@/lib/realtime/client';
 import { whatsapp } from '@/lib/whatsapp/client';
 import { WhatsAppApiError } from '@/lib/whatsapp/types';
-import { applyStatus, recordInbound, sendReply, sendTemplateReply } from '@/modules/messaging';
+import {
+  applyStatus,
+  markInboundRead,
+  recordInbound,
+  sendReply,
+  sendTemplateReply,
+  showTyping,
+} from '@/modules/messaging';
 import { db, hasTestDb, makeLead, resetDb } from '../helpers/db';
 
 // `after` and `connection` need a live Next request. Capture the callback so a test can run it
@@ -249,5 +256,55 @@ describe.skipIf(!hasTestDb)('events from the webhook path', () => {
     // 4096 Devanagari characters: legal for WhatsApp, about 12 KB in UTF-8.
     await recordInbound(lead.id, { ...inbound('wamid.big'), text: 'न'.repeat(4096) });
     expect(push.mock.calls[0][2]).toEqual({ refetch: true });
+  });
+});
+
+describe.skipIf(!hasTestDb)('read receipts and typing', () => {
+  const inboundRow = (leadId: string, waMessageId: string, createdAt: Date) =>
+    db.message.create({
+      data: {
+        leadId,
+        direction: 'IN',
+        waMessageId,
+        type: 'TEXT',
+        body: { text: 'Hi' },
+        status: 'DELIVERED',
+        sentBy: 'lead',
+        createdAt,
+      },
+    });
+
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    await resetDb();
+  });
+
+  it('acknowledges the latest inbound message', async () => {
+    const lead = await makeLead();
+    await inboundRow(lead.id, 'wamid.old', new Date(Date.now() - 60_000));
+    await inboundRow(lead.id, 'wamid.new', new Date());
+    const markRead = vi.spyOn(whatsapp, 'markRead').mockResolvedValue();
+    await markInboundRead(lead.id);
+    expect(markRead).toHaveBeenLastCalledWith('wamid.new', { typing: false });
+    await showTyping(lead.id);
+    expect(markRead).toHaveBeenLastCalledWith('wamid.new', { typing: true });
+  });
+
+  it('does nothing without an inbound message, or for an opted-out lead', async () => {
+    const lead = await makeLead();
+    const markRead = vi.spyOn(whatsapp, 'markRead').mockResolvedValue();
+    await markInboundRead(lead.id);
+    await inboundRow(lead.id, 'wamid.in', new Date());
+    await db.lead.update({ where: { id: lead.id }, data: { optedOutAt: new Date() } });
+    await showTyping(lead.id);
+    expect(markRead).not.toHaveBeenCalled();
+  });
+
+  it('a failed receipt never rejects, so it can never stop a bot reply', async () => {
+    const lead = await makeLead();
+    await inboundRow(lead.id, 'wamid.in', new Date());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(whatsapp, 'markRead').mockRejectedValue(new WhatsAppApiError('boom'));
+    await expect(showTyping(lead.id)).resolves.toBeUndefined();
   });
 });

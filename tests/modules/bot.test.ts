@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
 import { runJobsNow } from '@/app/_jobs/handlers';
+import { whatsapp } from '@/lib/whatsapp/client';
 import { recordWebhook } from '@/modules/jobs';
 import {
   buildMetaPayload,
@@ -90,6 +91,19 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     expect((await lastOut()).text).toContain(e.zoomJoinUrl!);
     const answers = await db.answer.findMany({ where: { leadId: l.id } });
     expect(answers.map((a) => a.questionKey).sort()).toEqual(['batch', 'course', 'name']);
+  });
+
+  it('shows "typing…" before a bot reply, but not once a person has the chat', async () => {
+    const markRead = vi.spyOn(whatsapp, 'markRead');
+    await deliver(fixture('text_with_referral'));
+    expect(markRead).toHaveBeenCalledOnce();
+    expect(markRead).toHaveBeenLastCalledWith(expect.any(String), { typing: true });
+
+    await db.lead.update({ where: { phoneE164: PHONE }, data: { needsHuman: true } });
+    markRead.mockClear();
+    await say({ kind: 'text', text: 'Anyone there?' });
+    expect(markRead).not.toHaveBeenCalled();
+    markRead.mockRestore();
   });
 
   it('two senders in one batch become two separate leads and threads', async () => {

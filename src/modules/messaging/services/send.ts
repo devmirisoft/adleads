@@ -152,3 +152,25 @@ export function sendTemplate<N extends TemplateName>(
     opts,
   );
 }
+
+/**
+ * Blue ticks on the lead's latest message; with `typing`, also their "typing…" bubble. Goes through
+ * the adapter, so it's a no-op unless WhatsApp is live. Best effort: a failed receipt must never
+ * stop a reply, so it logs and resolves. Not for opted-out leads.
+ */
+async function acknowledge(leadId: string, typing: boolean): Promise<void> {
+  const latest = await db.message.findFirst({
+    where: { leadId, direction: 'IN', waMessageId: { not: null }, lead: { optedOutAt: null } },
+    orderBy: { createdAt: 'desc' },
+    select: { waMessageId: true },
+  });
+  if (!latest?.waMessageId) return;
+  try {
+    await whatsapp.markRead(latest.waMessageId, { typing });
+  } catch (e) {
+    console.warn('[wa] read receipt failed', e instanceof Error ? e.name : 'unknown');
+  }
+}
+
+export const markInboundRead = (leadId: string) => acknowledge(leadId, false);
+export const showTyping = (leadId: string) => acknowledge(leadId, true);
