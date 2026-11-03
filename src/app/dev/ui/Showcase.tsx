@@ -37,6 +37,7 @@ import {
   Input,
   KeyValueList,
   Label,
+  MessageTicks,
   Money,
   PageHeader,
   Phone,
@@ -93,6 +94,7 @@ const TOKENS = [
   ['success', 'bg-success'],
   ['warning', 'bg-warning'],
   ['danger', 'bg-danger'],
+  ['read', 'bg-read'],
 ] as const;
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -193,7 +195,22 @@ function Components() {
                 label: 'Relative',
                 value: <DateTime value={new Date(now - 2 * HOUR)} relative />,
               },
+              {
+                label: 'DateTime timeOnly',
+                value: <DateTime value="2026-10-14T11:00:00Z" timeOnly />,
+              },
+              { label: 'DateTime day', value: <DateTime value={new Date(now)} day /> },
               { label: 'Phone', value: <Phone e164="+919812345678" /> },
+              {
+                label: 'MessageTicks',
+                value: (
+                  <span className="flex items-center gap-3">
+                    {(['QUEUED', 'SENT', 'DELIVERED', 'READ', 'FAILED'] as const).map((s) => (
+                      <MessageTicks key={s} status={s} />
+                    ))}
+                  </span>
+                ),
+              },
             ]}
           />
         </SectionCard>

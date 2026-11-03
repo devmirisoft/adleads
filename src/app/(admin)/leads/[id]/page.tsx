@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { ExternalLink } from 'lucide-react';
+import { realtimePublicConfig } from '@/lib/realtime/client';
 import { CAN_ACT, requireUser } from '@/modules/auth';
 import {
   Button,
@@ -9,7 +10,6 @@ import {
   PageHeader,
   Phone,
   SectionCard,
-  Separator,
   StatusBadge,
 } from '@/modules/core/components';
 import { AssignBatchDialog, EnrollmentActions, listOpenBatches } from '@/modules/enrollments';
@@ -22,7 +22,7 @@ import {
   ResolveButton,
   SOURCE_LABEL,
 } from '@/modules/leads';
-import { ChatThread, isWindowOpen, listMessages, ReplyBox } from '@/modules/messaging';
+import { ChatThread, isWindowOpen, listMessages } from '@/modules/messaging';
 import {
   listPayableEnrollments,
   ManualPaymentDialog,
@@ -31,6 +31,9 @@ import {
 } from '@/modules/payments';
 import { userNames } from '@/modules/settings';
 import { templateOptions } from './templateOptions';
+
+// Server actions run under this page's limit, including the Meta call a send makes in after().
+export const maxDuration = 60;
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const ANSWER_LABEL: Record<string, string> = {
@@ -47,7 +50,7 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
   if (!lead) notFound();
 
   const canAct = CAN_ACT.includes(user.role);
-  const [messages, windowOpen, staff, openBatches, payable] = await Promise.all([
+  const [chat, windowOpen, staff, openBatches, payable] = await Promise.all([
     listMessages(id),
     isWindowOpen(lead),
     userNames(),
@@ -55,6 +58,7 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
     canAct ? listPayableEnrollments() : [],
   ]);
   const name = leadName(lead);
+  const { messages } = chat;
   const lastIn = messages.findLast((m) => m.direction === 'IN');
   const unread = lastIn && lastIn === messages.at(-1) && lastIn.status !== 'READ';
   const canAssignBatch = ['ASKING', 'QUALIFIED', 'WAITLISTED'].includes(lead.status);
@@ -88,28 +92,17 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
       />
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="flex flex-col gap-6 lg:col-span-2">
-          <SectionCard
-            title="WhatsApp"
-            description={
-              windowOpen
-                ? 'They wrote within 24 hours: free-form replies allowed.'
-                : 'Outside the 24-hour window: templates only.'
-            }
-          >
-            <div className="flex flex-col gap-4">
-              <ChatThread leadId={lead.id} initial={messages} />
-              {canAct && (
-                <>
-                  <Separator />
-                  <ReplyBox
-                    leadId={lead.id}
-                    windowOpen={windowOpen}
-                    optedOut={!!lead.optedOutAt}
-                    templates={templateOptions(lead)}
-                  />
-                </>
-              )}
-            </div>
+          <SectionCard title="WhatsApp">
+            <ChatThread
+              key={lead.id}
+              leadId={lead.id}
+              initial={chat}
+              canAct={canAct}
+              windowOpen={windowOpen}
+              optedOut={!!lead.optedOutAt}
+              templates={canAct ? templateOptions(lead) : []}
+              realtime={realtimePublicConfig()}
+            />
           </SectionCard>
           <SectionCard title="Status history">
             <LeadTimeline events={lead.events} staff={staff} />

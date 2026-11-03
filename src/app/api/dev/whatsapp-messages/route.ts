@@ -8,5 +8,5 @@ export async function GET(req: NextRequest) {
   if (process.env.NODE_ENV === 'production') return new Response(null, { status: 404 });
   const phone = normalizePhone(req.nextUrl.searchParams.get('phone') ?? '');
   const leadId = phone ? await findLeadIdByPhone(phone) : null;
-  return Response.json({ messages: leadId ? await listMessages(leadId) : [] });
+  return Response.json({ messages: leadId ? (await listMessages(leadId)).messages : [] });
 }

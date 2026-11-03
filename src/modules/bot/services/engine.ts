@@ -3,6 +3,7 @@ import type { Lead } from '@/generated/prisma/client';
 import { now } from '@/lib/clock';
 import { linksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
+import { publishInboxChanged } from '@/lib/realtime/client';
 import { assignSeat } from '@/modules/enrollments';
 import { canTransition, transition, upsertLead } from '@/modules/leads';
 import {
@@ -87,6 +88,7 @@ async function handleKeyword(lead: Lead, msg: InboundMessage): Promise<boolean> 
         data: { optedOutAt: new Date(), needsHuman: true },
       });
     }
+    await publishInboxChanged(); // an opt-out or a new flag, after the goodbye already published
     return true;
   }
   if (word === 'HELP' || word === 'AGENT') {

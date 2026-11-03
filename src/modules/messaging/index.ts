@@ -8,7 +8,13 @@ export {
   sendText,
   type SendOptions,
 } from './services/send';
-export { applyStatus, hasMessage, listMessages, recordInbound } from './services/inbound';
+export {
+  applyStatus,
+  hasMessage,
+  listMessages,
+  listMessagesSince,
+  recordInbound,
+} from './services/inbound';
 export { isWindowOpen } from './services/window';
 export { metaEventKey, parseMetaWebhook } from './services/parseWebhook';
 export {
@@ -21,5 +27,5 @@ export { buildMetaPayload, type SimulatedInbound } from './utils/metaPayload';
 export { sendReply, sendTemplateReply } from './services/actions';
 export { ChatBubble } from './components/ChatBubble';
 export { ChatThread } from './components/ChatThread';
-export { ReplyBox, type TemplateOption } from './components/ReplyBox';
+export type { TemplateOption } from './components/ReplyBox';
 export { WhatsAppSimulator } from './components/WhatsAppSimulator';

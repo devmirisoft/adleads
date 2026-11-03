@@ -1,9 +1,11 @@
 import 'server-only';
+import { after } from 'next/server';
 import type { Message, MessageType } from '@/generated/prisma/client';
 import { db } from '@/lib/db';
 import { whatsapp, type Button, type ListRow, type SendResult } from '@/lib/whatsapp/client';
 import { TEMPLATES, type TemplateName, type TemplateVars } from '../constants/templates';
 import type { MessageBody } from '../types';
+import { publishMessage } from './events';
 import { isWindowOpen } from './window';
 
 // The ONLY way to message a lead. Never sends to opted-out leads, refuses free-form
@@ -21,13 +23,20 @@ export type SendOptions = {
   sentBy: string;
   /** Bot bookkeeping: marks a re-ask of step N after an invalid answer. */
   retryStep?: number;
+  /** Staff thread: matches the saved row to the browser's optimistic bubble. */
+  clientId?: string;
+  /**
+   * Resolve with the QUEUED row now and call Meta after the response. A send failure then shows
+   * as status FAILED, not as a rejection. Needs a request (server action or route handler).
+   */
+  background?: boolean;
 };
 
 async function deliver(
   leadId: string,
   msg: { type: MessageType; body: MessageBody; templateName?: string },
   call: (to: string) => Promise<SendResult>,
-  { sentBy, retryStep }: SendOptions,
+  { sentBy, retryStep, clientId, background }: SendOptions,
 ): Promise<Message | null> {
   const lead = await db.lead.findUniqueOrThrow({
     where: { id: leadId },
@@ -42,24 +51,46 @@ async function deliver(
       direction: 'OUT',
       type: msg.type,
       templateName: msg.templateName,
-      body: { ...msg.body, retryStep },
+      body: { ...msg.body, retryStep, clientId },
       status: 'QUEUED',
       sentBy,
     },
   });
-  try {
-    const { waMessageId } = await call(lead.phoneE164.slice(1)); // WhatsApp wants digits, no "+"
-    return await db.message.update({
-      where: { id: row.id },
-      data: { status: 'SENT', waMessageId },
-    });
-  } catch (e) {
-    const errorCode =
-      e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 500) : 'Unknown error';
-    await db.message.update({ where: { id: row.id }, data: { status: 'FAILED', errorCode } });
-    await db.lead.update({ where: { id: leadId }, data: { needsHuman: true } }); // puts it in /inbox
-    throw e;
-  }
+  // Runs alongside the Meta call so the push never delays a send, and always lands before the
+  // status event, so browsers see the row before its ticks.
+  const created = publishMessage('message.created', row);
+  const dispatch = async () => {
+    try {
+      const { waMessageId } = await call(lead.phoneE164.slice(1)); // WhatsApp wants digits, no "+"
+      const sent = await db.message.update({
+        where: { id: row.id },
+        data: { status: 'SENT', waMessageId },
+      });
+      await created;
+      await publishMessage('message.status', sent);
+      return sent;
+    } catch (e) {
+      const errorCode =
+        e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 500) : 'Unknown error';
+      const failed = await db.message.update({
+        where: { id: row.id },
+        data: { status: 'FAILED', errorCode },
+      });
+      await db.lead.update({ where: { id: leadId }, data: { needsHuman: true } }); // puts it in /inbox
+      await created;
+      await publishMessage('message.status', failed);
+      throw e;
+    }
+  };
+  if (!background) return dispatch();
+  // ponytail: a process killed before this finishes leaves the row QUEUED (clock icon) for good.
+  // If that's ever seen, have cron mark old QUEUED rows FAILED, or move this onto the jobs queue.
+  after(() =>
+    dispatch().catch((e: unknown) =>
+      console.error('[send] background send failed', e instanceof Error ? e.name : 'unknown'),
+    ),
+  );
+  return row;
 }
 
 // Each resolves to the logged Message, or null if the lead has opted out (nothing sent).

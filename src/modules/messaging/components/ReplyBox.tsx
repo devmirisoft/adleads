@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { Loader2, Send } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Send } from 'lucide-react';
 import {
   Button,
   FormField,
@@ -11,26 +11,26 @@ import {
   SelectTrigger,
   SelectValue,
   Textarea,
-  toast,
 } from '@/modules/core/components';
 import type { TemplateName } from '../constants/templates';
-import { sendReply, sendTemplateReply } from '../services/actions';
 
 export type TemplateOption = { name: TemplateName; preview: string; vars: Record<string, string> };
 
 type Props = {
-  leadId: string;
   /** Lead wrote within the last 24 h: free-form allowed. */
   windowOpen: boolean;
   optedOut: boolean;
   /** Templates whose variables could be filled from this lead's data. */
   templates: TemplateOption[];
+  onSendText: (text: string) => void;
+  onSendTemplate: (template: TemplateOption) => void;
 };
 
-export function ReplyBox({ leadId, windowOpen, optedOut, templates }: Props) {
+/** The composer. Sends never block it: the bubble appears in the thread, so it's ready for the next one. */
+export function ReplyBox({ windowOpen, optedOut, templates, onSendText, onSendTemplate }: Props) {
   const [text, setText] = useState('');
   const [template, setTemplate] = useState<TemplateName | ''>('');
-  const [pending, start] = useTransition();
+  const input = useRef<HTMLTextAreaElement>(null);
 
   if (optedOut) {
     return (
@@ -38,16 +38,15 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates }: Props) {
     );
   }
 
-  const send = (run: () => Promise<{ ok: boolean; error?: string }>, done: () => void) =>
-    start(async () => {
-      const res = await run();
-      if (res.ok) {
-        toast.success('Message sent');
-        done();
-      } else toast.error(res.error);
-    });
-
   const chosen = templates.find((t) => t.name === template);
+
+  function submit() {
+    const reply = text.trim();
+    if (!reply) return;
+    setText('');
+    onSendText(reply);
+    input.current?.focus(); // clicking Send moved focus to the button
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -56,29 +55,35 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates }: Props) {
           className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
-            send(
-              () => sendReply(leadId, text),
-              () => setText(''),
-            );
+            submit();
           }}
         >
-          <FormField id="reply" label="Reply">
-            <Textarea id="reply" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+          <FormField id="reply" label="Reply" help="Enter sends. Shift+Enter starts a new line.">
+            <Textarea
+              id="reply"
+              ref={input}
+              rows={2}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                // isComposing: Enter is confirming a word in a Hindi or other IME, not sending.
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+            />
           </FormField>
           <div className="flex justify-end">
-            <Button type="submit" disabled={pending || !text.trim()}>
-              {pending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Send className="size-4" aria-hidden />
-              )}
+            <Button type="submit" disabled={!text.trim()}>
+              <Send className="size-4" aria-hidden />
               Send reply
             </Button>
           </div>
         </form>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          More than 24 hours since they last wrote, so WhatsApp only allows an approved template.
+        <p className="rounded-lg bg-muted p-3 text-sm" role="status">
+          Customer hasn’t messaged in 24h — send a template
         </p>
       )}
       {templates.length > 0 && (
@@ -101,14 +106,12 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates }: Props) {
           <div className="flex justify-end">
             <Button
               variant={windowOpen ? 'outline' : 'default'}
-              disabled={pending || !chosen}
-              onClick={() =>
-                chosen &&
-                send(
-                  () => sendTemplateReply(leadId, chosen.name, chosen.vars),
-                  () => setTemplate(''),
-                )
-              }
+              disabled={!chosen}
+              onClick={() => {
+                if (!chosen) return;
+                setTemplate('');
+                onSendTemplate(chosen);
+              }}
             >
               Send template
             </Button>

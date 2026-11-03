@@ -35,6 +35,7 @@ export { EmptyState } from './EmptyState';
 export { FilterBar, FilterDateRange, FilterSelect, FilterToggle } from './FilterBar';
 export { FormField } from './FormField';
 export { KeyValueList } from './KeyValueList';
+export { MessageTicks } from './MessageTicks';
 export { Money } from './Money';
 export { PageHeader } from './PageHeader';
 export { Phone } from './Phone';

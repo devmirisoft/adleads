@@ -1,5 +1,6 @@
 import 'server-only';
 import { db } from '@/lib/db';
+import { publishInboxChanged } from '@/lib/realtime/client';
 import type { JobHandlers, JobType, RunResult } from '../types';
 
 const MAX_ATTEMPTS = 5;
@@ -80,5 +81,6 @@ async function flagLead(payload: unknown) {
   const leadId = (payload as { leadId?: unknown } | null)?.leadId;
   if (typeof leadId === 'string') {
     await db.lead.updateMany({ where: { id: leadId }, data: { needsHuman: true } });
+    await publishInboxChanged();
   }
 }
