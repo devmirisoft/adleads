@@ -35,6 +35,7 @@ import {
   FilterToggle,
   FormField,
   Input,
+  CopyButton,
   KeyValueList,
   Label,
   MessageTicks,
@@ -201,6 +202,10 @@ function Components() {
               },
               { label: 'DateTime day', value: <DateTime value={new Date(now)} day /> },
               { label: 'Phone', value: <Phone e164="+919812345678" /> },
+              {
+                label: 'CopyButton',
+                value: <CopyButton value="https://zoom.example/j/1" label="trial link" />,
+              },
               {
                 label: 'MessageTicks',
                 value: (

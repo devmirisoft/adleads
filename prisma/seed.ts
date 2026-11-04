@@ -69,6 +69,7 @@ const COURSES = {
   },
 } as const;
 
+// zoom.example links go nowhere: replace them on any batch real leads can reach.
 const BATCHES = {
   engMorning: {
     id: '00000000-0000-4000-8000-000000000b01',
@@ -78,7 +79,8 @@ const BATCHES = {
     startTime: '07:00',
     endTime: '08:00',
     capacity: 20,
-    zoomMeetingId: BigInt(81000000001),
+    trialLink: 'https://zoom.example/j/81000000001?for=trial',
+    paidLink: 'https://zoom.example/j/81000000001?for=paid',
   },
   engEvening: {
     // nearly full: 5 of 6 seats taken by the leads below
@@ -89,7 +91,8 @@ const BATCHES = {
     startTime: '19:00',
     endTime: '20:00',
     capacity: 6,
-    zoomMeetingId: BigInt(81000000002),
+    trialLink: 'https://zoom.example/j/81000000002?for=trial',
+    paidLink: 'https://zoom.example/j/81000000002?for=paid',
   },
   pyWeekend: {
     // FULL: 4 of 4 seats taken
@@ -100,7 +103,8 @@ const BATCHES = {
     startTime: '10:00',
     endTime: '12:00',
     capacity: 4,
-    zoomMeetingId: BigInt(81000000003),
+    trialLink: 'https://zoom.example/j/81000000003?for=trial',
+    paidLink: 'https://zoom.example/j/81000000003?for=paid',
   },
   pyWeekday: {
     id: '00000000-0000-4000-8000-000000000b04',
@@ -110,7 +114,8 @@ const BATCHES = {
     startTime: '18:30',
     endTime: '20:00',
     capacity: 15,
-    zoomMeetingId: BigInt(81000000004),
+    trialLink: 'https://zoom.example/j/81000000004?for=trial',
+    paidLink: 'https://zoom.example/j/81000000004?for=paid',
   },
 } as const;
 
@@ -441,7 +446,6 @@ async function seedLeads(salesId: string) {
       const { enrollment: status, payment: paymentStatus } = WITH_ENROLLMENT[spec.status];
       const trialDays = course!.trialDays ?? 3;
       const trialEndsIn = trialDays - 1 - spec.daysAgo; // days from today to the last trial day
-      const joinUrl = `https://zoom.example/j/${batch!.zoomMeetingId}?tk=seed-${i + 1}`;
       const linkUrl = `http://localhost:3000/dev/pay/plink_seed_${i + 1}`;
       const paid = paymentStatus === 'PAID' || paymentStatus === 'REFUNDED';
       const paidAt = paid ? ago(-trialEndsIn + 1) : null;
@@ -471,8 +475,8 @@ async function seedLeads(salesId: string) {
         status,
         trialStart: istDate(-spec.daysAgo),
         trialEnd: istDate(trialEndsIn),
-        zoomRegistrantId: status === 'TRIAL' || status === 'PAID' ? `reg_seed_${i + 1}` : null,
-        zoomJoinUrl: joinUrl,
+        zoomJoinUrl:
+          status === 'TRIAL' ? batch!.trialLink : status === 'PAID' ? batch!.paidLink : null,
         linkSentAt: at(),
         paidAt,
         cancelledAt: status === 'CANCELLED' ? ago(2) : null,
@@ -481,7 +485,7 @@ async function seedLeads(salesId: string) {
       });
 
       msg('OUT', {
-        text: `You're booked, ${firstName}! Your ${trialDays}-day free trial starts today.\n\nJoin here: ${joinUrl}`,
+        text: `You're booked, ${firstName}! Your ${trialDays}-day free trial starts today.\n\nThis link is for your trial days: ${batch!.trialLink}`,
       });
       if (paymentStatus && viaRazorpay) template('trial_payment_reminder', [firstName, linkUrl]);
       if (paid) template('enrollment_confirmed', [firstName, batch!.name]);

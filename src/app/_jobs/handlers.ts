@@ -1,7 +1,8 @@
 import 'server-only';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { handleInbound } from '@/modules/bot';
-import { cancelRegistrant, sendTrialLink } from '@/modules/enrollments';
+import { sendNewLink, sendTrialLink } from '@/modules/enrollments';
 import {
   getWebhookEvent,
   markWebhookNoted,
@@ -23,6 +24,10 @@ import { handleRazorpayEvent } from '@/modules/payments';
 // stays generic and no module has to import bot/payments/enrollments sideways.
 
 const id = z.object({ enrollmentId: z.uuid() });
+const newLink = z.object({ enrollmentId: z.uuid(), link: z.enum(['trial', 'paid']) });
+
+/** Rows queued before the Zoom API was removed: there is nothing left to do for them. */
+const retiredZoomJob = async () => 'Skipped: the Zoom API was removed';
 
 /** Returns a note if anything was ignored. Only real failures throw, and those retry. */
 async function processMetaEvent(payload: unknown): Promise<string | undefined> {
@@ -61,6 +66,9 @@ export const jobHandlers: JobHandlers = {
   },
 
   async sendMessage(payload) {
+    const link = newLink.safeParse(payload);
+    if (link.success) return sendNewLink(link.data.enrollmentId, link.data.link);
+
     const p = z
       .object({
         leadId: z.uuid(),
@@ -73,15 +81,24 @@ export const jobHandlers: JobHandlers = {
     await sendTemplate(p.leadId, p.template, p.vars as never, { sentBy: p.sentBy });
   },
 
-  async zoomRegister(payload) {
+  async sendTrialLink(payload) {
     await sendTrialLink(id.parse(payload).enrollmentId, { once: true });
   },
 
-  async zoomCancel(payload) {
-    const p = z.object({ meetingId: z.string(), registrantId: z.string() }).parse(payload);
-    await cancelRegistrant(BigInt(p.meetingId), p.registrantId);
-  },
+  zoomRegister: retiredZoomJob,
+  zoomCancel: retiredZoomJob,
 };
+
+/** Run due jobs straight after the response, so what was just queued doesn't wait for the cron tick. */
+export function runJobsAfterResponse() {
+  after(async () => {
+    try {
+      await runDue(jobHandlers, 50);
+    } catch (e) {
+      console.error('[jobs] runDue failed', e);
+    }
+  });
+}
 
 /** Dev only: run due jobs until the queue is idle (jobs can enqueue more jobs). */
 export async function runJobsNow(maxRounds = 5): Promise<RunResult> {

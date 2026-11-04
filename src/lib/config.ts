@@ -4,13 +4,7 @@ import { z } from 'zod';
 // The only place that reads process.env. Parsed once at boot; a bad env fails fast with the key names.
 const optional = z.string().min(1).optional();
 
-const LIVE_ONLY = [
-  'RAZORPAY_KEY_ID',
-  'RAZORPAY_KEY_SECRET',
-  'ZOOM_ACCOUNT_ID',
-  'ZOOM_CLIENT_ID',
-  'ZOOM_CLIENT_SECRET',
-] as const;
+const LIVE_ONLY = ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET'] as const;
 
 const WA_LIVE_ONLY = ['WA_PHONE_NUMBER_ID', 'WA_BUSINESS_ACCOUNT_ID', 'WA_ACCESS_TOKEN'] as const;
 
@@ -36,9 +30,6 @@ const schema = z
     WA_ACCESS_TOKEN: optional,
     RAZORPAY_KEY_ID: optional,
     RAZORPAY_KEY_SECRET: optional,
-    ZOOM_ACCOUNT_ID: optional,
-    ZOOM_CLIENT_ID: optional,
-    ZOOM_CLIENT_SECRET: optional,
 
     // Push chat updates to staff browsers. Off: the chat thread polls instead.
     REALTIME_MODE: z.enum(['off', 'pusher']).default('off'),
@@ -96,7 +87,7 @@ export function isWhatsAppLive(): boolean {
   return (config.WA_MODE ?? config.INTEGRATIONS_MODE) === 'live';
 }
 
-/** Real WhatsApp but fake Zoom/Razorpay: their links would reach real people, so nothing may send them. */
-export function linksAreFake(): boolean {
+/** Real WhatsApp but fake Razorpay: a payment link would reach real people, so nothing may send one. */
+export function paymentLinksAreFake(): boolean {
   return isWhatsAppLive() && config.INTEGRATIONS_MODE !== 'live';
 }

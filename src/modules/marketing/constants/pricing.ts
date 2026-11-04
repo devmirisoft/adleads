@@ -17,7 +17,7 @@ export const pricesIncludeGst = true;
 /** Shown under the plans: what every plan gets. */
 export const included = [
   'Every class in your batch, live on Zoom',
-  'Your personal class link on WhatsApp',
+  'Your class link on WhatsApp',
   'Class reminders on WhatsApp',
   'Pay by UPI, card or net banking (Razorpay)',
 ];

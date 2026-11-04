@@ -30,7 +30,7 @@ export default function TermsPage() {
         <li>
           New members get a free trial of {freeTrialDays} days in one batch. One trial per person.
         </li>
-        <li>We send your personal class link on WhatsApp. Please don&rsquo;t share it.</li>
+        <li>We send your class link on WhatsApp. Please don&rsquo;t share it.</li>
         <li>
           If you don&rsquo;t continue with a paid plan, the trial ends on its own and the link stops
           working. There is nothing to cancel.

@@ -22,8 +22,11 @@ export {
   type BatchFilters,
   type BatchInput,
   type CourseInput,
+  type LinkChange,
+  type SendNewLink,
 } from './types';
 export { AddBatchButton, BatchActions, BatchFilterBar, BatchTable } from './components/BatchTable';
 export { CoursesTable } from './components/CoursesTable';
 export { SeatMeter } from './components/SeatMeter';
-export { batchSchedule } from './utils';
+export { ClassLink } from './components/ClassLink';
+export { batchSchedule, needsTrialLink } from './utils';

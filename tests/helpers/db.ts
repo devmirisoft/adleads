@@ -31,14 +31,18 @@ export async function resetDb() {
   await db.$executeRawUnsafe(`TRUNCATE ${TABLES.join(', ')} RESTART IDENTITY CASCADE`);
 }
 
+export const TRIAL_LINK = 'https://zoom.example/j/trial';
+export const PAID_LINK = 'https://zoom.example/j/paid';
+
 let n = 0;
 const uniquePhone = () => `+9197${String(++n).padStart(8, '0')}`;
 
-/** One course, one batch, the 4 bot questions and default settings. */
+/** One course, one batch (with links, unless `links: false`), the 4 bot questions and default settings. */
 export async function seedBasics({
   capacity = 5,
   trialDays = 3,
-}: { capacity?: number; trialDays?: number } = {}) {
+  links = true,
+}: { capacity?: number; trialDays?: number; links?: boolean } = {}) {
   const course = await db.course.create({
     data: {
       name: 'Spoken English',
@@ -58,8 +62,9 @@ export async function seedBasics({
       startDate: new Date('2026-01-01'),
       endDate: new Date('2099-12-31'),
       capacity,
-      zoomMeetingId: BigInt(81000000002),
       zoomHostUser: 'host@zoom.example',
+      trialLink: links ? TRIAL_LINK : null,
+      paidLink: links ? PAID_LINK : null,
     },
   });
   const q = (

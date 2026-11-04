@@ -53,8 +53,11 @@ export async function runDue(handlers: JobHandlers, limit = 20): Promise<RunResu
     try {
       const handler = handlers[job.type as JobType];
       if (!handler) throw new Error(`No handler for job type "${job.type}"`);
-      await handler(job.payload);
-      await db.job.update({ where: { id: job.id }, data: { status: 'DONE', lastError: null } });
+      const note = await handler(job.payload);
+      await db.job.update({
+        where: { id: job.id },
+        data: { status: 'DONE', lastError: note || null },
+      });
       result.done++;
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);

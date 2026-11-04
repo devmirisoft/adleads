@@ -29,6 +29,7 @@ export { toast } from 'sonner';
 export { AdminShell } from './AdminShell';
 export type { ShellUser } from './Sidebar';
 export { ConfirmDialog } from './ConfirmDialog';
+export { CopyButton } from './CopyButton';
 export { DataTable, type DataTableColumn } from './DataTable';
 export { DateTime } from './DateTime';
 export { EmptyState } from './EmptyState';

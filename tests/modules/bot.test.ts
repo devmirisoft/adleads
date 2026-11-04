@@ -11,7 +11,7 @@ import {
   type MessageBody,
   type SimulatedInbound,
 } from '@/modules/messaging';
-import { db, hasTestDb, resetDb, seedBasics } from '../helpers/db';
+import { db, hasTestDb, resetDb, seedBasics, TRIAL_LINK } from '../helpers/db';
 
 // Replays WhatsApp webhooks through the real pipeline: store event → processWebhook job → bot.
 const WA = '919812345678'; // the sender in tests/fixtures/meta/text_with_referral.json
@@ -87,8 +87,11 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     l = await lead();
     expect(l).toMatchObject({ status: 'TRIAL_ACTIVE', name: 'Rahul Sharma', currentStep: null });
     const e = await db.enrollment.findFirstOrThrow({ where: { leadId: l.id } });
-    expect(e.zoomJoinUrl).toMatch(/^https:\/\/zoom\.example\/j\/81000000002\?tk=/);
-    expect((await lastOut()).text).toContain(e.zoomJoinUrl!);
+    expect(e.zoomJoinUrl).toBe(TRIAL_LINK);
+    const sent = (await lastOut()).text;
+    expect(sent).toContain(TRIAL_LINK);
+    expect(sent).toContain('for your trial days');
+    expect(sent).toContain('regular class link after payment');
     const answers = await db.answer.findMany({ where: { leadId: l.id } });
     expect(answers.map((a) => a.questionKey).sort()).toEqual(['batch', 'course', 'name']);
   });

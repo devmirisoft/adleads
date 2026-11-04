@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fakeZoomCancels } from '@/lib/zoom/fake';
 import { assignSeat, expire, sendTrialLink } from '@/modules/enrollments';
 import { requestPayment } from '@/modules/payments';
 import { db, hasTestDb, makeLead, resetDb, seedBasics } from '../helpers/db';
@@ -7,15 +6,13 @@ import { db, hasTestDb, makeLead, resetDb, seedBasics } from '../helpers/db';
 describe.skipIf(!hasTestDb)('expire()', () => {
   beforeEach(resetDb);
 
-  it('cancels the Zoom registrant, frees the seat, sends trial_ended and offers the seat to the waitlist', async () => {
+  it('frees the seat, sends trial_ended and offers the seat to the waitlist', async () => {
     const { batch, course } = await seedBasics({ capacity: 1 });
     const trialLead = await makeLead('QUALIFIED');
     const res = await assignSeat(trialLead.id, batch.id, { actor: 'test' });
     if (res.result !== 'trial') throw new Error('expected a seat');
     await sendTrialLink(res.enrollmentId);
     await requestPayment(res.enrollmentId, { actor: 'test' }); // → PAYMENT_PENDING
-    const registrant = (await db.enrollment.findUniqueOrThrow({ where: { id: res.enrollmentId } }))
-      .zoomRegistrantId;
 
     // Batch is full → two later leads are waitlisted for it; the older one should get the offer.
     const first = await makeLead('QUALIFIED', { courseId: course.id, name: 'First Waiter' });
@@ -35,12 +32,8 @@ describe.skipIf(!hasTestDb)('expire()', () => {
 
     await expire(res.enrollmentId, { actor: 'cron' });
 
-    expect(fakeZoomCancels.at(-1)).toMatchObject({
-      meetingId: batch.zoomMeetingId,
-      registrantId: registrant,
-    });
     const e = await db.enrollment.findUniqueOrThrow({ where: { id: res.enrollmentId } });
-    expect(e).toMatchObject({ status: 'EXPIRED', zoomRegistrantId: null, zoomJoinUrl: null });
+    expect(e).toMatchObject({ status: 'EXPIRED', zoomJoinUrl: null });
     expect((await db.lead.findUniqueOrThrow({ where: { id: trialLead.id } })).status).toBe(
       'EXPIRED',
     );
@@ -64,14 +57,18 @@ describe.skipIf(!hasTestDb)('expire()', () => {
     expect(await db.job.count({ where: { type: 'sendMessage' } })).toBe(2);
   });
 
-  it('refuses while the lead is not PAYMENT_PENDING, leaving Zoom untouched', async () => {
+  it('refuses while the lead has no edge to EXPIRED, changing nothing', async () => {
     const { batch } = await seedBasics();
     const lead = await makeLead('QUALIFIED');
     const res = await assignSeat(lead.id, batch.id, { actor: 'test' });
     if (res.result !== 'trial') throw new Error('expected a seat');
-    await sendTrialLink(res.enrollmentId);
-    const cancels = fakeZoomCancels.length;
+    await db.lead.update({ where: { id: lead.id }, data: { status: 'ENROLLED' } });
+
     await expect(expire(res.enrollmentId, { actor: 'cron' })).rejects.toThrow("Can't expire");
-    expect(fakeZoomCancels.length).toBe(cancels);
+
+    expect(
+      (await db.enrollment.findUniqueOrThrow({ where: { id: res.enrollmentId } })).status,
+    ).toBe('TRIAL');
+    expect((await db.batch.findUniqueOrThrow({ where: { id: batch.id } })).seatsTaken).toBe(1);
   });
 });

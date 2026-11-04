@@ -1,10 +1,10 @@
 import 'server-only';
 import type { Lead } from '@/generated/prisma/client';
 import { now } from '@/lib/clock';
-import { linksAreFake } from '@/lib/config';
+import { paymentLinksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { publishInboxChanged } from '@/lib/realtime/client';
-import { assignSeat } from '@/modules/enrollments';
+import { assignSeat, trialLinkAvailable } from '@/modules/enrollments';
 import { canTransition, transition, upsertLead } from '@/modules/leads';
 import {
   hasMessage,
@@ -161,13 +161,18 @@ async function answerStep(lead: Lead, msg: InboundMessage) {
   }
 }
 
-/** Zoom/Razorpay aren't live: no seat and no trial clock yet. Staff book it and send the link by hand. */
+/** The batch has no trial link yet: no seat and no trial clock. Staff add it and book the seat. */
 async function handOverBooking(lead: Lead) {
   await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
   await sendText(lead.id, 'Our team will send your class link shortly.', { sentBy: 'bot' });
 }
 
-/** All questions answered: QUALIFIED → book the seat (trial link follows via the zoomRegister job). */
+async function canBook(batchId: string) {
+  const batch = await db.batch.findUnique({ where: { id: batchId }, select: { trialLink: true } });
+  return !!batch && trialLinkAvailable(batch);
+}
+
+/** All questions answered: QUALIFIED → book the seat (trial link follows via the sendTrialLink job). */
 async function finishScript(lead: Lead) {
   await db.lead.update({ where: { id: lead.id }, data: { currentStep: null } });
   const batch = await db.answer.findUnique({
@@ -176,7 +181,7 @@ async function finishScript(lead: Lead) {
   if (!isUuid(batch?.answerValue)) return handOver(lead);
 
   await transition(lead.id, 'QUALIFIED', { actor: 'bot' });
-  if (linksAreFake()) return handOverBooking(lead);
+  if (!(await canBook(batch.answerValue))) return handOverBooking(lead);
   const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
   if (result.result === 'waitlisted') {
     await sendText(
@@ -185,7 +190,7 @@ async function finishScript(lead: Lead) {
       { sentBy: 'bot' },
     );
   } else {
-    await sendText(lead.id, 'Great, your seat is booked! Your personal class link is on its way.', {
+    await sendText(lead.id, 'Great, your seat is booked! Your class link is on its way.', {
       sentBy: 'bot',
     });
   }
@@ -202,12 +207,12 @@ async function waitlisted(lead: Lead, msg: InboundMessage) {
     where: { leadId_questionKey: { leadId: lead.id, questionKey: 'batch' } },
   });
   if (!isUuid(batch?.answerValue)) return handOver(lead);
-  if (linksAreFake()) return handOverBooking(lead);
+  if (!(await canBook(batch.answerValue))) return handOverBooking(lead);
   const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
   await sendText(
     lead.id,
     result.result === 'trial'
-      ? 'Great, your seat is booked! Your personal class link is on its way.'
+      ? 'Great, your seat is booked! Your class link is on its way.'
       : `Sorry, ${batch.answerLabel} is still full. We'll message you as soon as a seat opens.`,
     { sentBy: 'bot' },
   );
@@ -216,6 +221,8 @@ async function waitlisted(lead: Lead, msg: InboundMessage) {
 /** Trial/paid/expired leads: answer "link?"-type questions, hand everything else to staff. */
 async function contextualReply(lead: Lead, msg: InboundMessage) {
   const asksForLink = /link|zoom|join|class|pay/i.test(msg.text ?? '');
+  const asksToPay = /pay/i.test(msg.text ?? '');
+  const noPaymentLinks = paymentLinksAreFake();
   const enrollment = await db.enrollment.findFirst({
     where: { leadId: lead.id },
     orderBy: { createdAt: 'desc' },
@@ -227,19 +234,21 @@ async function contextualReply(lead: Lead, msg: InboundMessage) {
       },
     },
   });
-  const joinUrl = enrollment?.zoomJoinUrl;
-  const payUrl = enrollment?.payments[0]?.razorpayLinkUrl;
+  // The stored link is the one for their stage: markPaid and expire clear it when the stage changes.
+  const classLink = enrollment?.zoomJoinUrl && `Your class link: ${enrollment.zoomJoinUrl}`;
+  const payUrl = noPaymentLinks ? null : enrollment?.payments[0]?.razorpayLinkUrl;
   const reply =
     lead.status === 'TRIAL_ACTIVE' || lead.status === 'ENROLLED'
-      ? joinUrl && `Your class link: ${joinUrl}`
+      ? classLink
       : lead.status === 'PAYMENT_PENDING'
-        ? payUrl &&
-          `Your payment link: ${payUrl}${joinUrl ? `\n\nYour class link: ${joinUrl}` : ''}`
+        ? payUrl
+          ? `Your payment link: ${payUrl}${classLink ? `\n\n${classLink}` : ''}`
+          : classLink
         : lead.status === 'EXPIRED'
           ? payUrl && `Your trial has ended. Pay here to join the batch: ${payUrl}`
           : null;
 
-  if (asksForLink && reply && !linksAreFake()) {
+  if (asksForLink && reply && !(asksToPay && noPaymentLinks)) {
     await sendText(lead.id, reply, { sentBy: 'bot' });
   } else {
     await handOver(lead);

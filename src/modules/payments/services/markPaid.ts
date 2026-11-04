@@ -1,9 +1,8 @@
 import 'server-only';
 import type { PaymentMethod } from '@/generated/prisma/client';
-import { linksAreFake } from '@/lib/config';
 import { db, isUniqueViolation } from '@/lib/db';
 import { formatMoney } from '@/modules/core/utils';
-import { ensureRegistered, firstName, reclaimSeat } from '@/modules/enrollments';
+import { firstName, reclaimSeat } from '@/modules/enrollments';
 import { transition, type Actor } from '@/modules/leads';
 import { sendTemplate } from '@/modules/messaging';
 
@@ -19,8 +18,8 @@ export type MarkPaidInput = {
 
 export type MarkPaidResult = 'enrolled' | 'duplicate' | 'needs_review';
 
-/** Flag the lead for staff with a note saying why, instead of enrolling. */
-async function needsReview(leadId: string, note: string): Promise<MarkPaidResult> {
+/** Flag the lead for staff with a note saying why. */
+export async function needsReview(leadId: string, note: string): Promise<MarkPaidResult> {
   const lead = await db.lead.findUniqueOrThrow({ where: { id: leadId }, select: { notes: true } });
   await db.lead.update({
     where: { id: leadId },
@@ -35,7 +34,7 @@ async function needsReview(leadId: string, note: string): Promise<MarkPaidResult
 /**
  * THE single path to ENROLLED (Razorpay webhook and staff "Mark paid" both land here).
  * Idempotent on razorpayPaymentId / an already-PAID payment. Amount must equal the course fee.
- * A payment after the trial EXPIRED takes the seat back and gets a new Zoom link.
+ * A payment after the trial EXPIRED takes the seat back. Sends the batch's paid link.
  */
 export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
   if (input.razorpayPaymentId) {
@@ -69,8 +68,6 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
   }
 
   const wasExpired = e.status === 'EXPIRED';
-  // Zoom stays outside the transaction; it's idempotent, so a retry after a failure is safe.
-  const joinUrl = linksAreFake() ? null : await ensureRegistered(e.id);
   let overbooked = false;
   try {
     await db.$transaction(async (tx) => {
@@ -86,7 +83,8 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
       });
       await tx.enrollment.update({
         where: { id: e.id },
-        data: { status: 'PAID', paidAt: new Date() },
+        // Clears the trial link: the bot resends what's stored here, and that's no longer their link.
+        data: { status: 'PAID', paidAt: new Date(), zoomJoinUrl: null, linkSentAt: null },
       });
       if (wasExpired) overbooked = await reclaimSeat(tx, e.batchId);
       await transition(
@@ -106,10 +104,11 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
       `re-enrolled after expiry into ${e.batch.name}, which is now over capacity.`,
     );
   }
-  if (!joinUrl) {
+  const paidLink = e.batch.paidLink;
+  if (!paidLink) {
     await needsReview(
       e.leadId,
-      `enrolled in ${e.batch.name}, but Zoom isn't live yet. Send the class link in the chat.`,
+      `Paid, but batch ${e.batch.name} has no paid link. Add it on the batch page, then use "Resend class link".`,
     );
     return 'enrolled';
   }
@@ -117,15 +116,21 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
   // ponytail: a process killed before this send leaves them enrolled with no confirmation, and the
   // re-run stops at 'duplicate'; staff have "Resend class link". Queue it inside the transaction if that bites.
   try {
-    await sendTemplate(
+    const sent = await sendTemplate(
       e.leadId,
       'enrollment_confirmed',
-      { name: firstName(e.lead), batch: e.batch.name, joinUrl },
+      { name: firstName(e.lead), batch: e.batch.name, joinUrl: paidLink },
       { sentBy: input.actor },
     );
+    if (sent) {
+      await db.enrollment.update({
+        where: { id: e.id },
+        data: { zoomJoinUrl: paidLink, linkSentAt: new Date() },
+      });
+    }
   } catch (err) {
     // Enrollment stands; the FAILED message shows in the lead's thread for staff to follow up.
-    console.error('[markPaid] confirmation not sent', err);
+    console.error('[markPaid] confirmation not sent', err instanceof Error ? err.name : 'unknown');
   }
   return 'enrolled';
 }

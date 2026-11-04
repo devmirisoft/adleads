@@ -170,8 +170,7 @@ function MoveBatchDialog({
         <DialogHeader>
           <DialogTitle>Move {e.leadName} to another batch</DialogTitle>
           <DialogDescription>
-            Frees their seat in {e.batch.name}. Their old Zoom link stops working and a new one is
-            sent.
+            Frees their seat in {e.batch.name} and sends the new batch&apos;s class link.
           </DialogDescription>
         </DialogHeader>
         {options.length === 0 ? (
@@ -227,7 +226,7 @@ function CancelDialog({ open, onClose, enrollment: e }: DialogProps) {
       onOpenChange={(o) => !o && onClose()}
       tone="danger"
       title={`Cancel ${e.leadName}'s enrollment in ${e.batch.name}?`}
-      description="Their Zoom link will stop working, their seat is freed and the lead is closed."
+      description="Their seat is freed and the lead is closed. The batch's Zoom link is shared, so it keeps working until you change it."
       confirmLabel="Cancel enrollment"
       onConfirm={async () => {
         await report(cancelEnrollmentAction(e.id, reason), `${e.leadName}'s enrollment cancelled`);
