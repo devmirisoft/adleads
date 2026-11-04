@@ -9,6 +9,7 @@ import {
   paymentFiltersSchema,
   PaymentsTable,
 } from '@/modules/payments';
+import { recordManualPaymentAndRunJobs } from '../../_jobs/actions';
 
 export default async function PaymentsPage({ searchParams }: PageProps<'/payments'>) {
   const user = await requireUser();
@@ -24,7 +25,14 @@ export default async function PaymentsPage({ searchParams }: PageProps<'/payment
       <PageHeader
         title="Payments"
         description="Razorpay links and manual payments"
-        actions={canAct && <ManualPaymentDialog enrollments={payable} />}
+        actions={
+          canAct && (
+            <ManualPaymentDialog
+              enrollments={payable}
+              recordPayment={recordManualPaymentAndRunJobs}
+            />
+          )
+        }
       />
       <PaymentFilterBar />
       <PaymentsTable

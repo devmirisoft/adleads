@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from '@/app/api/webhooks/whatsapp/route';
 import { POST as razorpayPOST } from '@/app/api/webhooks/razorpay/route';
 import { GET as cronJobsGet, POST as cronJobs } from '@/app/api/cron/jobs/route';
-import { db, hasTestDb, resetDb, seedBasics } from '../helpers/db';
+import { assignSeat, sendTrialLink } from '@/modules/enrollments';
+import { requestPayment } from '@/modules/payments';
+import { db, hasTestDb, makeLead, resetDb, seedBasics } from '../helpers/db';
 
 // `after` needs a live Next request. Capture the callback so a test can run it "after the response".
 const afterTasks = vi.hoisted(() => [] as (() => Promise<void>)[]);
@@ -88,6 +90,37 @@ describe.skipIf(!hasTestDb)('webhook POSTs: verify → store → 200', () => {
     for (let i = 0; i < 2; i++)
       expect((await razorpayPOST(post('http://x', raw, headers))).status).toBe(200);
     expect(await db.webhookEvent.count({ where: { eventKey: 'razorpay:evt_1' } })).toBe(1);
+    expect(afterTasks).toHaveLength(1); // the retry was a duplicate: nothing more to run
+  });
+
+  it('Razorpay: a paid event confirms the lead in the run right after the response, no cron tick', async () => {
+    const { batch } = await seedBasics();
+    const lead = await makeLead('QUALIFIED');
+    const res = await assignSeat(lead.id, batch.id, { actor: 'test' });
+    if (res.result !== 'trial') throw new Error('expected a seat');
+    await sendTrialLink(res.enrollmentId);
+    const payment = await requestPayment(res.enrollmentId, { actor: 'test' });
+    const raw = JSON.stringify({
+      event: 'payment_link.paid',
+      payload: {
+        payment_link: { entity: { id: payment.razorpayLinkId } },
+        payment: { entity: { id: 'pay_now', amount: payment.amountPaise } },
+      },
+    });
+    const headers = { 'x-razorpay-signature': sign(raw, process.env.RAZORPAY_WEBHOOK_SECRET!) };
+
+    expect((await razorpayPOST(post('http://x', raw, headers))).status).toBe(200);
+    expect((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status).toBe(
+      'PAYMENT_PENDING',
+    ); // no work inside the request
+
+    // One run covers both jobs: processWebhook, then the confirmation it queued.
+    expect(afterTasks).toHaveLength(1);
+    await afterTasks[0]();
+    expect((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status).toBe('ENROLLED');
+    expect(
+      await db.message.count({ where: { leadId: lead.id, templateName: 'enrollment_confirmed' } }),
+    ).toBe(1);
   });
 
   it('the jobs cron also answers Vercel Cron: GET with a bearer token', async () => {

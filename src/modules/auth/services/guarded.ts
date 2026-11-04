@@ -22,15 +22,17 @@ function staffMessage(e: unknown): string {
 /**
  * Body of every server action: role check → run → refresh the page → `{ ok, data } | { ok, error }`.
  * The role check redirects (not signed in / wrong role), so the UI only toasts real failures.
+ * `refresh: false` skips the page refresh, for actions whose UI updates itself (chat sends).
  */
 export async function guarded<T>(
   roles: Role[],
   run: (user: SessionUser) => Promise<T>,
+  { refresh: refreshPage = true }: { refresh?: boolean } = {},
 ): Promise<ApiResult<T>> {
   const user = await requireRole(...roles);
   try {
     const data = await run(user);
-    refresh();
+    if (refreshPage) refresh();
     return { ok: true, data };
   } catch (e) {
     unstable_rethrow(e); // let Next's redirect/notFound through

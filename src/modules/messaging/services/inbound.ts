@@ -1,4 +1,5 @@
 import 'server-only';
+import type { Message } from '@/generated/prisma/client';
 import { db, isUniqueViolation } from '@/lib/db';
 import type { ChatMessage, InboundMessage, MessageBody, StatusUpdate } from '../types';
 
@@ -43,10 +44,9 @@ export async function applyStatus(update: StatusUpdate): Promise<void> {
   }
 }
 
-/** A lead's thread for chat views (oldest first), ready to send to the browser. */
-export async function listMessages(leadId: string): Promise<ChatMessage[]> {
-  const rows = await db.message.findMany({ where: { leadId }, orderBy: { createdAt: 'asc' } });
-  return rows.map((m) => ({
+/** A Message row in the shape the browser gets. */
+export function toChatMessage(m: Message): ChatMessage {
+  return {
     id: m.id,
     direction: m.direction,
     type: m.type,
@@ -56,5 +56,22 @@ export async function listMessages(leadId: string): Promise<ChatMessage[]> {
     errorCode: m.errorCode,
     sentBy: m.sentBy,
     createdAt: m.createdAt.toISOString(),
-  }));
+    updatedAt: m.updatedAt.toISOString(),
+  };
+}
+
+// updatedAt is stamped before the row commits, so a change can land just behind a `since` already
+// handed out. Reading a little further back catches it; the browser merges by id, so repeats are harmless.
+const SINCE_OVERLAP_MS = 5000;
+
+/** A lead's thread for chat views (oldest first). With `since`: only rows changed from then on. */
+export async function listMessages(leadId: string, since?: Date): Promise<ChatMessage[]> {
+  const rows = await db.message.findMany({
+    where: {
+      leadId,
+      ...(since && { updatedAt: { gte: new Date(since.getTime() - SINCE_OVERLAP_MS) } }),
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  return rows.map(toChatMessage);
 }

@@ -1,10 +1,10 @@
-import { after, type NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
 import type { Prisma } from '@/generated/prisma/client';
 import { config } from '@/lib/config';
 import { verifyWhatsAppSignature } from '@/lib/whatsapp/verify';
-import { recordWebhook, runDue } from '@/modules/jobs';
+import { recordWebhook } from '@/modules/jobs';
 import { metaEventKey } from '@/modules/messaging';
-import { jobHandlers } from '../../../_jobs/handlers';
+import { runJobsAfterResponse } from '../../../_jobs/handlers';
 
 /** Meta's one-time subscription handshake: echo hub.challenge if the verify token matches. */
 export function GET(req: NextRequest) {
@@ -53,15 +53,7 @@ export async function POST(req: Request) {
       ms: Date.now() - stageAt,
       totalMs: Date.now() - startedAt,
     });
-    if (!duplicate) {
-      after(async () => {
-        try {
-          await runDue(jobHandlers, 50);
-        } catch (e) {
-          console.error('[wa] runDue failed', e);
-        }
-      });
-    }
+    if (!duplicate) runJobsAfterResponse();
     return Response.json({ ok: true });
   } catch (e) {
     const { name, message, code } = e as { name?: string; message?: string; code?: unknown };

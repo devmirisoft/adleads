@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { requireUser } from '@/modules/auth';
 import { PageHeader, Skeleton } from '@/modules/core/components';
 import { leadFiltersSchema, listLeads } from '@/modules/leads';
 import { WhatsAppSimulator } from '@/modules/messaging';
@@ -18,6 +19,7 @@ export default function WhatsAppSimulatorPage() {
 }
 
 async function Simulator() {
+  await requireUser();
   const { items } = await listLeads(leadFiltersSchema.parse({ pageSize: 10 }));
   const recent = items.map((l) => ({
     phone: l.phoneE164,

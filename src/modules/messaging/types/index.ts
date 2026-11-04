@@ -52,4 +52,6 @@ export type ChatMessage = {
   errorCode: string | null;
   sentBy: string;
   createdAt: string;
+  /** Moves on every status change, so polling can find it and a late reply can't undo it. */
+  updatedAt: string;
 };

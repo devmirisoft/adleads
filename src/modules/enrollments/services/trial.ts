@@ -1,9 +1,28 @@
 import 'server-only';
 import { now } from '@/lib/clock';
-import { db } from '@/lib/db';
+import { db, type Tx } from '@/lib/db';
 import { addDays, formatDate, formatTime, istDate, isoWeekday } from '@/modules/core/utils';
 import { enqueue } from '@/modules/jobs';
 import { firstName } from './sendTrialLink';
+
+/** Use inside markPaid's transaction: `enrollment_confirmed` commits with the payment, so it can't be lost. */
+export function queueEnrollmentConfirmed(
+  tx: Tx,
+  e: {
+    leadId: string;
+    lead: { name: string | null; profileName: string | null };
+    batch: { name: string };
+  },
+  joinUrl: string,
+  sentBy: string,
+) {
+  const vars = { name: firstName(e.lead), batch: e.batch.name, joinUrl };
+  return enqueue(
+    'sendMessage',
+    { leadId: e.leadId, template: 'enrollment_confirmed', vars, sentBy },
+    { tx },
+  );
+}
 
 export async function extendTrial(enrollmentId: string, days: number) {
   if (!Number.isInteger(days) || days < 1 || days > 30) throw new Error('Extend by 1–30 days.');

@@ -1,11 +1,10 @@
 import 'server-only';
 import type { PaymentMethod } from '@/generated/prisma/client';
 import { linksAreFake } from '@/lib/config';
-import { db, isUniqueViolation } from '@/lib/db';
+import { db, isUniqueViolation, type Tx } from '@/lib/db';
 import { formatMoney } from '@/modules/core/utils';
-import { ensureRegistered, firstName, reclaimSeat } from '@/modules/enrollments';
+import { ensureRegistered, queueEnrollmentConfirmed, reclaimSeat } from '@/modules/enrollments';
 import { transition, type Actor } from '@/modules/leads';
-import { sendTemplate } from '@/modules/messaging';
 
 export type MarkPaidInput = {
   paymentId: string;
@@ -20,9 +19,9 @@ export type MarkPaidInput = {
 export type MarkPaidResult = 'enrolled' | 'duplicate' | 'needs_review';
 
 /** Flag the lead for staff with a note saying why, instead of enrolling. */
-async function needsReview(leadId: string, note: string): Promise<MarkPaidResult> {
-  const lead = await db.lead.findUniqueOrThrow({ where: { id: leadId }, select: { notes: true } });
-  await db.lead.update({
+async function needsReview(leadId: string, note: string, tx: Tx = db): Promise<MarkPaidResult> {
+  const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId }, select: { notes: true } });
+  await tx.lead.update({
     where: { id: leadId },
     data: {
       needsHuman: true,
@@ -71,7 +70,6 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
   const wasExpired = e.status === 'EXPIRED';
   // Zoom stays outside the transaction; it's idempotent, so a retry after a failure is safe.
   const joinUrl = linksAreFake() ? null : await ensureRegistered(e.id);
-  let overbooked = false;
   try {
     await db.$transaction(async (tx) => {
       await tx.payment.update({
@@ -88,44 +86,35 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
         where: { id: e.id },
         data: { status: 'PAID', paidAt: new Date() },
       });
-      if (wasExpired) overbooked = await reclaimSeat(tx, e.batchId);
+      const overbooked = wasExpired && (await reclaimSeat(tx, e.batchId));
       await transition(
         e.leadId,
         'ENROLLED',
         { actor: input.actor, note: `Paid via ${input.method}` },
         tx,
       );
+      if (overbooked) {
+        await needsReview(
+          e.leadId,
+          `re-enrolled after expiry into ${e.batch.name}, which is now over capacity.`,
+          tx,
+        );
+      }
+      // Outbox: what they're owed commits with the payment. A process killed after this loses
+      // nothing, and its re-run stops at 'duplicate'. Never send directly from here.
+      if (joinUrl) {
+        await queueEnrollmentConfirmed(tx, e, joinUrl, input.actor);
+      } else {
+        await needsReview(
+          e.leadId,
+          `enrolled in ${e.batch.name}, but Zoom isn't live yet. Send the class link in the chat.`,
+          tx,
+        );
+      }
     });
   } catch (err) {
     if (isUniqueViolation(err)) return 'duplicate'; // same razorpayPaymentId raced in
     throw err;
-  }
-  if (overbooked) {
-    await needsReview(
-      e.leadId,
-      `re-enrolled after expiry into ${e.batch.name}, which is now over capacity.`,
-    );
-  }
-  if (!joinUrl) {
-    await needsReview(
-      e.leadId,
-      `enrolled in ${e.batch.name}, but Zoom isn't live yet. Send the class link in the chat.`,
-    );
-    return 'enrolled';
-  }
-
-  // ponytail: a process killed before this send leaves them enrolled with no confirmation, and the
-  // re-run stops at 'duplicate'; staff have "Resend class link". Queue it inside the transaction if that bites.
-  try {
-    await sendTemplate(
-      e.leadId,
-      'enrollment_confirmed',
-      { name: firstName(e.lead), batch: e.batch.name, joinUrl },
-      { sentBy: input.actor },
-    );
-  } catch (err) {
-    // Enrollment stands; the FAILED message shows in the lead's thread for staff to follow up.
-    console.error('[markPaid] confirmation not sent', err);
   }
   return 'enrolled';
 }

@@ -3,8 +3,9 @@ import type { Prisma } from '@/generated/prisma/client';
 import { config } from '@/lib/config';
 import { verifyRazorpaySignature } from '@/lib/razorpay/client';
 import { recordWebhook } from '@/modules/jobs';
+import { runJobsAfterResponse } from '../../../_jobs/handlers';
 
-// Verify → store → 200. All work happens later in the processWebhook job.
+// Verify → store → 200, then run the processWebhook job straight after the response.
 export async function POST(req: Request) {
   const raw = await req.text();
   const signature = req.headers.get('x-razorpay-signature');
@@ -20,6 +21,7 @@ export async function POST(req: Request) {
   // Razorpay retries with the same event id; fall back to the body hash.
   const eventId =
     req.headers.get('x-razorpay-event-id') ?? createHash('sha256').update(raw).digest('hex');
-  await recordWebhook('RAZORPAY', `razorpay:${eventId}`, payload);
+  const { duplicate } = await recordWebhook('RAZORPAY', `razorpay:${eventId}`, payload);
+  if (!duplicate) runJobsAfterResponse();
   return Response.json({ ok: true });
 }

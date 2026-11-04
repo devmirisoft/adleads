@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { runJobsNow } from '@/app/_jobs/handlers';
 import { fakeZoomCancels } from '@/lib/zoom/fake';
 import { assignSeat, expire, sendTrialLink } from '@/modules/enrollments';
 import { recordWebhook } from '@/modules/jobs';
@@ -26,8 +27,39 @@ const paidEvent = (linkId: string, payId: string, amount = FEE) => ({
   },
 });
 
+const confirmations = (leadId: string) =>
+  db.message.count({ where: { leadId, templateName: 'enrollment_confirmed' } });
+
 describe.skipIf(!hasTestDb)('markPaid()', () => {
   beforeEach(resetDb);
+
+  it('the confirmation commits with the payment: a kill right after loses nothing, a re-run adds nothing', async () => {
+    const { lead, payment } = await trialWithLink();
+    const event = paidEvent(payment.razorpayLinkId!, 'pay_outbox');
+
+    await handleRazorpayEvent(event);
+    // The process dies here: enrolled, nothing sent yet, but the job is already in the queue.
+    expect((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status).toBe('ENROLLED');
+    expect(await confirmations(lead.id)).toBe(0);
+
+    await handleRazorpayEvent(event); // the swept job re-runs and stops at 'duplicate'
+    expect((await runJobsNow()).failed).toEqual([]);
+    expect(await confirmations(lead.id)).toBe(1);
+  });
+
+  it('a payment that fails to commit queues no confirmation', async () => {
+    const { lead, payment } = await trialWithLink();
+    await db.lead.update({ where: { id: lead.id }, data: { status: 'NEW' } }); // can't reach ENROLLED
+
+    await expect(
+      markPaid({ paymentId: payment.id, method: 'CASH', amountPaise: FEE, actor: 'test' }),
+    ).rejects.toThrow();
+
+    expect((await db.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe(
+      'CREATED',
+    );
+    expect(await db.job.count({ where: { type: 'sendMessage' } })).toBe(0);
+  });
 
   it('enrolls once; a duplicate webhook changes nothing', async () => {
     const { lead, enrollmentId, payment } = await trialWithLink();
@@ -58,8 +90,10 @@ describe.skipIf(!hasTestDb)('markPaid()', () => {
       status: 'PAID',
     });
     expect(await db.payment.count({ where: { status: 'PAID' } })).toBe(1);
-    expect(await db.message.count({ where: { leadId: lead.id } })).toBe(sent); // no second confirmation
+    expect(await db.message.count({ where: { leadId: lead.id } })).toBe(sent);
     expect(await db.leadEvent.count({ where: { leadId: lead.id, toStatus: 'ENROLLED' } })).toBe(1);
+    await runJobsNow();
+    expect(await confirmations(lead.id)).toBe(1); // no second confirmation
   });
 
   it('amount mismatch → needsHuman with a note, not enrolled', async () => {
@@ -96,6 +130,7 @@ describe.skipIf(!hasTestDb)('markPaid()', () => {
     expect((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status).toBe('ENROLLED');
     expect((await db.batch.findUniqueOrThrow({ where: { id: batch.id } })).seatsTaken).toBe(1);
     expect(fakeZoomCancels.some((c) => c.registrantId === before.zoomRegistrantId)).toBe(true);
+    await runJobsNow();
     const confirmation = await db.message.findFirstOrThrow({
       where: { leadId: lead.id, templateName: 'enrollment_confirmed' },
     });

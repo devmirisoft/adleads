@@ -22,6 +22,11 @@ export {
   resendPaymentLinkAction,
 } from './services/actions';
 export { expireDueTrials, runTrialsCron, type CronResult } from './services/trialCron';
-export { METHOD_LABEL, paymentFiltersSchema, type PaymentFilters } from './types';
+export {
+  METHOD_LABEL,
+  paymentFiltersSchema,
+  type ManualPaymentInput,
+  type PaymentFilters,
+} from './types';
 export { ManualPaymentDialog } from './components/ManualPaymentForm';
 export { PaymentFilterBar, PaymentsTable } from './components/PaymentsTable';

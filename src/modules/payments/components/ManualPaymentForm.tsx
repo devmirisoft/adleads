@@ -21,8 +21,8 @@ import {
   SelectValue,
   toast,
 } from '@/modules/core/components';
+import type { ApiResult } from '@/modules/core/types';
 import { formatMoney } from '@/modules/core/utils';
-import { recordManualPaymentAction } from '../services/actions';
 import type { PayableEnrollment } from '../services/queries';
 import {
   MANUAL_METHODS,
@@ -35,10 +35,13 @@ import {
 export function ManualPaymentDialog({
   enrollments,
   enrollmentId,
+  recordPayment,
 }: {
   enrollments: PayableEnrollment[];
   /** Preselect (lead detail page). */
   enrollmentId?: string;
+  /** Passed in by the page: the app-layer action also runs the job queue, which this module can't reach. */
+  recordPayment: (input: ManualPaymentInput) => Promise<ApiResult<unknown>>;
 }) {
   const [open, setOpen] = useState(false);
   const feeOf = (id?: string) => enrollments.find((e) => e.id === id)?.feePaise;
@@ -57,7 +60,7 @@ export function ManualPaymentDialog({
   const fee = feeOf(useWatch({ control, name: 'enrollmentId' }));
 
   async function onSubmit(values: ManualPaymentInput) {
-    const res = await recordManualPaymentAction(values);
+    const res = await recordPayment(values);
     if (!res.ok) return void toast.error(res.error);
     toast.success('Payment recorded — the lead is enrolled');
     reset();

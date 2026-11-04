@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { Loader2, Send } from 'lucide-react';
+import { useState } from 'react';
+import { Send } from 'lucide-react';
 import {
   Button,
   FormField,
@@ -11,12 +11,20 @@ import {
   SelectTrigger,
   SelectValue,
   Textarea,
-  toast,
 } from '@/modules/core/components';
+import type { ApiResult } from '@/modules/core/types';
 import type { TemplateName } from '../constants/templates';
 import { sendReply, sendTemplateReply } from '../services/actions';
+import type { ChatMessage } from '../types';
 
 export type TemplateOption = { name: TemplateName; preview: string; vars: Record<string, string> };
+
+/** Shows `draft` in the thread now and runs the send with its id. `restore` refills the input if it's refused. */
+export type SendMessage = (
+  draft: Pick<ChatMessage, 'type' | 'templateName' | 'body'>,
+  run: (messageId: string) => Promise<ApiResult<ChatMessage>>,
+  restore: () => void,
+) => void;
 
 type Props = {
   leadId: string;
@@ -25,27 +33,18 @@ type Props = {
   optedOut: boolean;
   /** Templates whose variables could be filled from this lead's data. */
   templates: TemplateOption[];
+  onSend: SendMessage;
 };
 
-export function ReplyBox({ leadId, windowOpen, optedOut, templates }: Props) {
+export function ReplyBox({ leadId, windowOpen, optedOut, templates, onSend }: Props) {
   const [text, setText] = useState('');
   const [template, setTemplate] = useState<TemplateName | ''>('');
-  const [pending, start] = useTransition();
 
   if (optedOut) {
     return (
       <p className="text-sm text-muted-foreground">This lead opted out. We can’t message them.</p>
     );
   }
-
-  const send = (run: () => Promise<{ ok: boolean; error?: string }>, done: () => void) =>
-    start(async () => {
-      const res = await run();
-      if (res.ok) {
-        toast.success('Message sent');
-        done();
-      } else toast.error(res.error);
-    });
 
   const chosen = templates.find((t) => t.name === template);
 
@@ -56,9 +55,12 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates }: Props) {
           className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
-            send(
-              () => sendReply(leadId, text),
-              () => setText(''),
+            const reply = text;
+            setText('');
+            onSend(
+              { type: 'TEXT', templateName: null, body: { text: reply.trim() } },
+              (messageId) => sendReply(leadId, reply, messageId),
+              () => setText((typed) => typed || reply),
             );
           }}
         >
@@ -66,12 +68,8 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates }: Props) {
             <Textarea id="reply" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
           </FormField>
           <div className="flex justify-end">
-            <Button type="submit" disabled={pending || !text.trim()}>
-              {pending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Send className="size-4" aria-hidden />
-              )}
+            <Button type="submit" disabled={!text.trim()}>
+              <Send className="size-4" aria-hidden />
               Send reply
             </Button>
           </div>
@@ -101,14 +99,16 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates }: Props) {
           <div className="flex justify-end">
             <Button
               variant={windowOpen ? 'outline' : 'default'}
-              disabled={pending || !chosen}
-              onClick={() =>
-                chosen &&
-                send(
-                  () => sendTemplateReply(leadId, chosen.name, chosen.vars),
-                  () => setTemplate(''),
-                )
-              }
+              disabled={!chosen}
+              onClick={() => {
+                if (!chosen) return;
+                setTemplate('');
+                onSend(
+                  { type: 'TEMPLATE', templateName: chosen.name, body: { text: chosen.preview } },
+                  (messageId) => sendTemplateReply(leadId, chosen.name, chosen.vars, messageId),
+                  () => setTemplate(chosen.name),
+                );
+              }}
             >
               Send template
             </Button>

@@ -8,7 +8,7 @@ export {
 } from './services/sendTrialLink';
 export { cancel } from './services/cancel';
 export { expire } from './services/expire';
-export { extendTrial, sendClassReminders } from './services/trial';
+export { extendTrial, queueEnrollmentConfirmed, sendClassReminders } from './services/trial';
 export {
   listEnrollments,
   listOpenBatches,

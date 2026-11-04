@@ -1,4 +1,5 @@
 import 'server-only';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { handleInbound } from '@/modules/bot';
 import { cancelRegistrant, sendTrialLink } from '@/modules/enrollments';
@@ -82,6 +83,17 @@ export const jobHandlers: JobHandlers = {
     await cancelRegistrant(BigInt(p.meetingId), p.registrantId);
   },
 };
+
+/** Run due jobs straight after the response, so what was just queued doesn't wait for the cron tick. */
+export function runJobsAfterResponse() {
+  after(async () => {
+    try {
+      await runDue(jobHandlers, 50);
+    } catch (e) {
+      console.error('[jobs] runDue failed', e);
+    }
+  });
+}
 
 /** Dev only: run due jobs until the queue is idle (jobs can enqueue more jobs). */
 export async function runJobsNow(maxRounds = 5): Promise<RunResult> {

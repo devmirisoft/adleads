@@ -1,9 +1,17 @@
 'use client';
 
-import { List } from 'lucide-react';
+import { Check, CheckCheck, Clock, List } from 'lucide-react';
 import { Button, DateTime, StatusBadge } from '@/modules/core/components';
 import { cn } from '@/modules/core/utils';
 import type { ChatButton, ChatMessage, ChatRow } from '../types';
+
+/** Delivery ticks on messages we sent. FAILED gets a StatusBadge instead. */
+const TICKS = {
+  QUEUED: { icon: Clock, label: 'Sending…' },
+  SENT: { icon: Check, label: 'Sent' },
+  DELIVERED: { icon: CheckCheck, label: 'Delivered' },
+  READ: { icon: CheckCheck, label: 'Read' },
+} as const;
 
 type Props = {
   message: ChatMessage;
@@ -17,6 +25,7 @@ type Props = {
 export function ChatBubble({ message: m, self, onTap }: Props) {
   const mine = m.direction === self;
   const tapKind = m.type === 'TEMPLATE' ? 'template_button' : 'button';
+  const tick = mine && m.direction === 'OUT' && m.status !== 'FAILED' ? TICKS[m.status] : null;
   return (
     <div className={cn('flex flex-col gap-1', mine ? 'items-end' : 'items-start')}>
       <div
@@ -50,6 +59,12 @@ export function ChatBubble({ message: m, self, onTap }: Props) {
       {m.body.rows && <ListRows button={m.body.button} rows={m.body.rows} onTap={onTap} />}
       <span className="flex items-center gap-2 text-xs text-muted-foreground">
         <DateTime value={m.createdAt} relative />
+        {tick && (
+          <span className="flex items-center gap-1">
+            <tick.icon className="size-4" aria-hidden />
+            {tick.label}
+          </span>
+        )}
         {m.status === 'FAILED' && <StatusBadge status="FAILED" />}
       </span>
       {m.status === 'FAILED' && m.errorCode && (

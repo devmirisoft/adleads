@@ -1,6 +1,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
+import { connection } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import type { Role } from '@/modules/core/types';
@@ -12,6 +13,7 @@ import type { SessionUser } from '../types';
  * Not signed in or deactivated → /login.
  */
 export const requireUser = cache(async (): Promise<SessionUser> => {
+  await connection(); // auth() and a new DB connection use crypto, which partial prefetching rejects before this
   const session = await auth();
   const user = session?.user?.id
     ? await db.user.findUnique({
