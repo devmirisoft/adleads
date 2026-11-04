@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { runJobsNow } from '@/app/_jobs/handlers';
-import { fakeZoomCancels } from '@/lib/zoom/fake';
 import { assignSeat, expire, sendTrialLink } from '@/modules/enrollments';
 import { recordWebhook } from '@/modules/jobs';
 import { handleRazorpayEvent, markPaid, requestPayment } from '@/modules/payments';
-import { db, hasTestDb, makeLead, resetDb, seedBasics } from '../helpers/db';
+import { db, hasTestDb, makeLead, PAID_LINK, resetDb, seedBasics, TRIAL_LINK } from '../helpers/db';
 
 const FEE = 299_900;
 
-/** A lead on a TRIAL with a Zoom link and an open Razorpay payment link. */
+/** A lead on a TRIAL with its trial link and an open Razorpay payment link. */
 async function trialWithLink(capacity = 5) {
   const { batch } = await seedBasics({ capacity });
   const lead = await makeLead('QUALIFIED');
@@ -114,26 +113,72 @@ describe.skipIf(!hasTestDb)('markPaid()', () => {
     );
   });
 
-  it('paid after EXPIRED → seat retaken, re-registered on Zoom with a new link, ENROLLED', async () => {
+  it('sends the paid link via enrollment_confirmed and stores it in place of the trial link', async () => {
+    const { lead, enrollmentId, payment } = await trialWithLink();
+    expect(
+      (await db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } })).zoomJoinUrl,
+    ).toBe(TRIAL_LINK);
+
+    await handleRazorpayEvent(paidEvent(payment.razorpayLinkId!, 'pay_link'));
+    await runJobsNow();
+
+    expect(await db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } })).toMatchObject({
+      status: 'PAID',
+      zoomJoinUrl: PAID_LINK,
+    });
+    const confirmation = await db.message.findFirstOrThrow({
+      where: { leadId: lead.id, templateName: 'enrollment_confirmed' },
+    });
+    expect(JSON.stringify(confirmation.body)).toContain(PAID_LINK);
+  });
+
+  it('no paid link → still enrolled, flagged with a note, and the trial link is not left stored', async () => {
     const { lead, enrollmentId, payment, batch } = await trialWithLink();
-    const before = await db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+    await db.batch.update({ where: { id: batch.id }, data: { paidLink: null } });
+
+    await handleRazorpayEvent(paidEvent(payment.razorpayLinkId!, 'pay_nolink'));
+
+    const after = await db.lead.findUniqueOrThrow({ where: { id: lead.id } });
+    expect(after).toMatchObject({ status: 'ENROLLED', needsHuman: true });
+    expect(after.notes).toContain(`Paid, but batch ${batch.name} has no paid link`);
+    expect(await db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } })).toMatchObject({
+      status: 'PAID',
+      zoomJoinUrl: null,
+    });
+    expect(
+      await db.message.count({ where: { leadId: lead.id, templateName: 'enrollment_confirmed' } }),
+    ).toBe(0);
+  });
+
+  it('an opted-out lead is enrolled but sent nothing, so no link is stored as sent', async () => {
+    const { lead, enrollmentId, payment } = await trialWithLink();
+    await db.lead.update({ where: { id: lead.id }, data: { optedOutAt: new Date() } });
+
+    await handleRazorpayEvent(paidEvent(payment.razorpayLinkId!, 'pay_optout'));
+    await runJobsNow();
+
+    expect(await db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } })).toMatchObject({
+      status: 'PAID',
+      zoomJoinUrl: null,
+    });
+  });
+
+  it('paid after EXPIRED → seat retaken, paid link sent, ENROLLED', async () => {
+    const { lead, enrollmentId, payment, batch } = await trialWithLink();
     await expire(enrollmentId, { actor: 'test' });
     expect((await db.batch.findUniqueOrThrow({ where: { id: batch.id } })).seatsTaken).toBe(0);
 
     await handleRazorpayEvent(paidEvent(payment.razorpayLinkId!, 'pay_late'));
+    await runJobsNow();
 
     const after = await db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
     expect(after.status).toBe('PAID');
-    expect(after.zoomRegistrantId).toBeTruthy();
-    expect(after.zoomRegistrantId).not.toBe(before.zoomRegistrantId);
-    expect(after.zoomJoinUrl).not.toBe(before.zoomJoinUrl);
+    expect(after.zoomJoinUrl).toBe(PAID_LINK);
     expect((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status).toBe('ENROLLED');
     expect((await db.batch.findUniqueOrThrow({ where: { id: batch.id } })).seatsTaken).toBe(1);
-    expect(fakeZoomCancels.some((c) => c.registrantId === before.zoomRegistrantId)).toBe(true);
-    await runJobsNow();
     const confirmation = await db.message.findFirstOrThrow({
       where: { leadId: lead.id, templateName: 'enrollment_confirmed' },
     });
-    expect(JSON.stringify(confirmation.body)).toContain(after.zoomJoinUrl!);
+    expect(JSON.stringify(confirmation.body)).toContain(PAID_LINK);
   });
 });

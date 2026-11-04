@@ -9,6 +9,7 @@ import { firstName } from './sendTrialLink';
 export function queueEnrollmentConfirmed(
   tx: Tx,
   e: {
+    id: string;
     leadId: string;
     lead: { name: string | null; profileName: string | null };
     batch: { name: string };
@@ -19,7 +20,7 @@ export function queueEnrollmentConfirmed(
   const vars = { name: firstName(e.lead), batch: e.batch.name, joinUrl };
   return enqueue(
     'sendMessage',
-    { leadId: e.leadId, template: 'enrollment_confirmed', vars, sentBy },
+    { leadId: e.leadId, enrollmentId: e.id, template: 'enrollment_confirmed', vars, sentBy },
     { tx },
   );
 }

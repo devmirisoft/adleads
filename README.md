@@ -1,13 +1,14 @@
 # AdLeads
 
-Click-to-WhatsApp ad → WhatsApp bot asks a few questions → lead gets a seat in a batch and a personal
-Zoom trial link → Razorpay payment keeps the link; unpaid trials expire and the Zoom registrant is cancelled.
+Click-to-WhatsApp ad → WhatsApp bot asks a few questions → lead gets a seat in a batch and its Zoom
+trial link → payment sends the batch's regular class link; unpaid trials expire.
 
 Next.js 16 (App Router) · Prisma 7 + PostgreSQL · Auth.js · Tailwind v4 + shadcn/ui. Read `AGENTS.md`
 before changing code.
 
-WhatsApp, Zoom and Razorpay sit behind adapters in `src/lib/{whatsapp,zoom,razorpay}`. With
+WhatsApp and Razorpay sit behind adapters in `src/lib/{whatsapp,razorpay}`. With
 `INTEGRATIONS_MODE=fake` (the default) nothing leaves your machine and the whole flow runs locally.
+Zoom has no API integration: staff paste a trial link and a paid link on each batch.
 
 ## Run it locally (WSL / Ubuntu)
 
@@ -23,15 +24,15 @@ WhatsApp, Zoom and Razorpay sit behind adapters in `src/lib/{whatsapp,zoom,razor
 
 2. **Environment**: `cp .env.example .env`, then fill in:
 
-   | Key | Value for local dev |
-   | --- | --- |
-   | `DATABASE_URL` | `postgresql://adleads:adleads@localhost:5432/adleads` |
-   | `NEXTAUTH_SECRET` | `openssl rand -base64 32` |
-   | `NEXTAUTH_URL` | `http://localhost:3000` |
-   | `WA_APP_SECRET`, `WA_VERIFY_TOKEN`, `RAZORPAY_WEBHOOK_SECRET`, `CRON_SECRET` | any random strings (`openssl rand -hex 32`) |
-   | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | the admin you'll sign in as |
+   | Key                                                                          | Value for local dev                                   |
+   | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+   | `DATABASE_URL`                                                               | `postgresql://adleads:adleads@localhost:5432/adleads` |
+   | `NEXTAUTH_SECRET`                                                            | `openssl rand -base64 32`                             |
+   | `NEXTAUTH_URL`                                                               | `http://localhost:3000`                               |
+   | `WA_APP_SECRET`, `WA_VERIFY_TOKEN`, `RAZORPAY_WEBHOOK_SECRET`, `CRON_SECRET` | any random strings (`openssl rand -hex 32`)           |
+   | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`                                    | the admin you'll sign in as                           |
 
-   The WhatsApp/Zoom/Razorpay API keys are only required with `INTEGRATIONS_MODE=live`.
+   The WhatsApp/Razorpay API keys are only required with `INTEGRATIONS_MODE=live`.
 
 3. **Install, migrate, seed, run**
 
@@ -58,10 +59,10 @@ These pages exist only when `NODE_ENV !== 'production'` and need you to be signe
   `trial_payment_reminder`. **Pay now** sends a correctly signed `payment_link.paid` webhook to
   `/api/webhooks/razorpay` → the lead becomes ENROLLED. **Fail payment** leaves the link open.
 - **`/dev/clock`** — run any cron job now, and **shift time by N days** to test trials:
-  shift 2 days → **Run trials** (payment link sent) → **Run expire** → the trial is EXPIRED, its Zoom
-  registrant cancelled and the seat offered to the waitlist. **Reset** puts the clock back.
+  shift 2 days → **Run trials** (payment link sent) → **Run expire** → the trial is EXPIRED and the
+  seat offered to the waitlist. **Reset** puts the clock back.
 
-Typical run: `/dev/whatsapp` "Hi" → name → course → batch → Confirm → you get a Zoom link →
+Typical run: `/dev/whatsapp` "Hi" → name → course → batch → Confirm → you get the trial link →
 `/dev/clock` shift 2 days → Run trials → open the payment link → Pay now → ENROLLED.
 
 ## Tests
@@ -89,8 +90,9 @@ Before committing: `npm run lint`, `npx tsc --noEmit`, `npm test`.
 - Webhook URLs: `/api/webhooks/whatsapp` (Meta: GET handshake + POST), `/api/webhooks/razorpay`.
   Both verify signatures, store the event and return 200; the work happens in `/api/cron/jobs`
   (and, for WhatsApp, right after the response).
-- Going live: implement the `live.ts` adapters in `src/lib/{zoom,razorpay}` (each lists the API
-  calls to make), fill in the API keys, and set `INTEGRATIONS_MODE=live`. Nothing else changes.
-  WhatsApp's adapter is done: `WA_MODE=live` turns on real WhatsApp alone. Until
-  `INTEGRATIONS_MODE=live` too, no Zoom or Razorpay link is sent: the bot stops at confirm and
-  hands the lead to staff, who book the seat and send the class link in the chat.
+- Class links: paste a trial link and a paid link on each batch in `/batches`. They go out in any
+  mode. A batch with no trial link makes the bot stop at confirm and hand the lead to staff.
+- Going live: implement the `live.ts` adapter in `src/lib/razorpay` (it lists the API calls to
+  make), fill in the API keys, and set `INTEGRATIONS_MODE=live`. Nothing else changes. WhatsApp's
+  adapter is done: `WA_MODE=live` turns on real WhatsApp alone. Until `INTEGRATIONS_MODE=live` too,
+  no Razorpay link is sent: staff collect the payment and record it, and trials still expire on time.

@@ -42,6 +42,7 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
+  --color-read: var(--read);
   --color-destructive: var(--destructive);
 
   --radius-sm: calc(var(--radius) * 0.6);
@@ -73,6 +74,7 @@
   --success: #16a34a;
   --warning: #d97706;
   --danger: #dc2626;
+  --read: #0284c7; /* blue ticks: a read WhatsApp message */
   --radius: 0.5rem;
 
   /* Aliases the shadcn primitives expect. */

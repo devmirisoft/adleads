@@ -22,4 +22,8 @@ export const fakeWhatsApp: WhatsAppClient = {
     checkTemplate(name, lang);
     return sent();
   },
+  // No phone to update. Logged so dev and tests can see it fire; wamids aren't logged.
+  async markRead(_messageId, opts) {
+    console.debug(`[wa:fake] ${opts?.typing ? 'typing' : 'read'}`);
+  },
 };

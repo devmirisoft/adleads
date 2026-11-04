@@ -2,6 +2,8 @@
 //  - GET: same hub.challenge handshake as /api/webhooks/whatsapp (page subscription, field "leadgen").
 //  - POST: verify X-Hub-Signature-256 → recordWebhook('META', `leadgen:${leadgen_id}`, payload) → 200.
 //  - Job: GET https://graph.facebook.com/v21.0/{leadgen_id} (page token) → upsert lead with source LEAD_FORM.
+export const maxDuration = 60;
+
 const notYet = () =>
   Response.json({ error: 'Lead form ingestion is not set up yet' }, { status: 501 });
 

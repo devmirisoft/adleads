@@ -1,11 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
-// Cookie present = let it through, with no decoding, so chat polling and every other request
-// skip the JWT work. A fake cookie gets no further than this: pages, actions and API routes call
-// requireUser()/requireRole() from '@/modules/auth' for the real authorization.
+// Cookie present = let it through, with no decoding and no database, so this costs nothing per
+// request. So a made-up cookie gets past this: every page, action and API route must call
+// requireUser()/requireRole() from '@/modules/auth' itself. tests/lib/sessionGuard.test.ts enforces it.
 const SESSION_COOKIE = /^(__Secure-)?authjs\.session-token(\.\d+)?$/; // .N: Auth.js splits big cookies
 
 export function proxy(req: NextRequest) {
+  // Every kind of request, signed in or not. dev/layout.tsx alone only covers plain page loads.
+  if (process.env.NODE_ENV === 'production' && /^\/dev(\/|$)/.test(req.nextUrl.pathname)) {
+    return new NextResponse(null, { status: 404 });
+  }
   if (req.cookies.getAll().some((c) => SESSION_COOKIE.test(c.name))) return NextResponse.next();
   if (req.nextUrl.pathname.startsWith('/api/')) {
     return NextResponse.json({ error: 'Sign in required' }, { status: 401 });

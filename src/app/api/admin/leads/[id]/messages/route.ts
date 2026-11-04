@@ -1,11 +1,14 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { requireUser } from '@/modules/auth';
-import { listMessages } from '@/modules/messaging';
+import { listMessages, listMessagesSince } from '@/modules/messaging';
 
-const sinceParam = z.coerce.date().optional();
+const query = z.object({ after: z.iso.datetime().optional(), before: z.uuid().optional() });
 
-/** Chat polling for the lead detail page. `?since=` (the previous reply's `at`) returns only what changed. */
+/**
+ * Chat fallback for the lead detail page. The newest page, or `?before=<message id>` for the page
+ * older than it, or `?after=<cursor>` for only what changed since the last poll's `cursor`.
+ */
 export async function GET(
   req: NextRequest,
   { params }: RouteContext<'/api/admin/leads/[id]/messages'>,
@@ -13,8 +16,11 @@ export async function GET(
   await requireUser();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: 'Not found' }, { status: 404 });
-  const since = sinceParam.safeParse(req.nextUrl.searchParams.get('since') ?? undefined);
-  if (!since.success) return Response.json({ error: 'Invalid since' }, { status: 400 });
-  const at = new Date().toISOString(); // before the read, so nothing changing during it is skipped
-  return Response.json({ messages: await listMessages(id, since.data), at });
+  const q = query.safeParse(Object.fromEntries(req.nextUrl.searchParams));
+  if (!q.success) return Response.json({ error: 'Invalid cursor' }, { status: 400 });
+  const { after, before } = q.data;
+  const page = after
+    ? await listMessagesSince(id, new Date(after))
+    : await listMessages(id, { before });
+  return Response.json(page, { headers: { 'Cache-Control': 'no-store' } });
 }

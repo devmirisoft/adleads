@@ -1,78 +1,107 @@
 import 'server-only';
-import { linksAreFake } from '@/lib/config';
+import type { Prisma } from '@/generated/prisma/client';
 import { db } from '@/lib/db';
-import { zoom } from '@/lib/zoom/client';
+import type { LinkKind } from '@/modules/core/types';
 import { formatDate, formatDays, formatTime } from '@/modules/core/utils';
+import { enqueue } from '@/modules/jobs';
 import { OutsideWindowError, sendTemplate, sendText } from '@/modules/messaging';
-
-// ponytail: Zoom requires an email per registrant and the bot doesn't ask for one; a placeholder
-// per phone number works with registration emails turned off. Ask for email in the bot if Zoom mails matter.
-const placeholderEmail = (phoneE164: string) => `wa${phoneE164.slice(1)}@example.com`;
 
 export const firstName = (lead: { name: string | null; profileName: string | null }) =>
   (lead.name ?? lead.profileName ?? 'there').split(' ')[0];
 
-/** Registers the lead on the batch's Zoom meeting unless already registered. Returns their join URL. */
-export async function ensureRegistered(enrollmentId: string): Promise<string> {
-  const e = await db.enrollment.findUniqueOrThrow({
-    where: { id: enrollmentId },
-    include: { lead: true, batch: true },
-  });
-  if (e.zoomRegistrantId && e.zoomJoinUrl) return e.zoomJoinUrl;
-  if (!e.batch.zoomMeetingId) throw new Error(`Batch "${e.batch.name}" has no Zoom meeting yet.`);
+/** Staff pasted it, so it's real in any mode, and the bot may book this batch on its own. */
+export const trialLinkAvailable = (batch: { trialLink: string | null }) => !!batch.trialLink;
 
-  const [first, ...rest] = (e.lead.name ?? e.lead.profileName ?? 'Student').split(' ');
-  const { registrantId, joinUrl } = await zoom.addRegistrant(e.batch.zoomMeetingId, {
-    firstName: first,
-    lastName: rest.join(' '),
-    email: placeholderEmail(e.lead.phoneE164),
-  });
-  await db.enrollment.update({
+const STAGE = { trial: 'TRIAL', paid: 'PAID' } as const;
+
+const withLeadAndBatch = { lead: true, batch: true } satisfies Prisma.EnrollmentInclude;
+type Loaded = Prisma.EnrollmentGetPayload<{ include: typeof withLeadAndBatch }>;
+
+const load = (id: string) =>
+  db.enrollment.findUniqueOrThrow({ where: { id }, include: withLeadAndBatch });
+
+const classTime = (b: Loaded['batch']) =>
+  `${formatDays(b.daysOfWeek)} at ${formatTime(b.startTime)} IST`;
+
+/** Call once a link has really gone out. */
+export const recordLinkSent = (enrollmentId: string, link: string) =>
+  db.enrollment.update({
     where: { id: enrollmentId },
-    data: { zoomRegistrantId: registrantId, zoomJoinUrl: joinUrl },
+    data: { zoomJoinUrl: link, linkSentAt: new Date() },
   });
-  return joinUrl;
+
+/**
+ * Free text inside the 24 h window, otherwise this stage's template. Stores the link actually
+ * sent: an opted-out lead gets nothing, so nothing is stored.
+ */
+async function deliverLink(e: Loaded, link: string, text: string) {
+  const name = firstName(e.lead);
+  const batch = e.batch.name;
+  const opts = { sentBy: 'bot' };
+  const sent = await sendText(e.leadId, text, opts).catch((err: unknown) => {
+    if (!(err instanceof OutsideWindowError)) throw err;
+    return e.status === 'TRIAL'
+      ? sendTemplate(
+          e.leadId,
+          'class_reminder',
+          { name, batch, when: classTime(e.batch), joinUrl: link },
+          opts,
+        )
+      : sendTemplate(e.leadId, 'enrollment_confirmed', { name, batch, joinUrl: link }, opts);
+  });
+  if (sent) await recordLinkSent(e.id, link);
 }
 
 /**
- * Register on Zoom, then send the personal trial link (template if outside 24 h).
- * `once` (job `zoomRegister`) skips a link that already went out, so a re-run doesn't message twice.
+ * Send the batch's link for this stage: trial link while on trial, paid link once paid.
+ * `once` (job `sendTrialLink`) skips a link that already went out, so a re-run doesn't message twice.
  * assignSeat and moveBatch clear linkSentAt when a new link is due. Without it: "Resend class link".
  */
 export async function sendTrialLink(enrollmentId: string, { once = false } = {}) {
-  const e = await db.enrollment.findUniqueOrThrow({
-    where: { id: enrollmentId },
-    include: { lead: true, batch: true },
-  });
+  const e = await load(enrollmentId);
   if (e.status !== 'TRIAL' && e.status !== 'PAID') return; // cancelled/expired meanwhile
   if (once && e.linkSentAt) return;
-  // Staff see this on "Resend link"; as a job it retries, then flags the lead for staff.
-  if (linksAreFake()) {
-    throw new Error("Zoom isn't live yet, so no link was sent. Send the class link in the chat.");
-  }
 
-  const joinUrl = await ensureRegistered(enrollmentId);
-  const name = firstName(e.lead);
-  const when = `${formatDays(e.batch.daysOfWeek)} at ${formatTime(e.batch.startTime)} IST`;
-  const text =
-    e.status === 'TRIAL'
-      ? `You're booked, ${name}! Your free trial of ${e.batch.name} (${when}) runs ${formatDate(e.trialStart)} – ${formatDate(e.trialEnd)}.\n\nJoin with your personal link: ${joinUrl}\n\nThis link works only for you — please don't share it.`
-      : `Here's your class link for ${e.batch.name} (${when}): ${joinUrl}`;
-  try {
-    await sendText(e.leadId, text, { sentBy: 'bot' });
-  } catch (err) {
-    if (!(err instanceof OutsideWindowError)) throw err;
-    await sendTemplate(
-      e.leadId,
-      'class_reminder',
-      { name, batch: e.batch.name, when, joinUrl },
-      { sentBy: 'bot' },
+  const onTrial = e.status === 'TRIAL';
+  const link = onTrial ? e.batch.trialLink : e.batch.paidLink;
+  // Staff see this on "Resend class link"; as a job it retries, then flags the lead for staff.
+  if (!link) {
+    throw new Error(
+      `${e.batch.name} has no ${onTrial ? 'trial' : 'paid'} link yet, so nothing was sent. Add it on the batch page, then use "Resend class link".`,
     );
   }
-  await db.enrollment.update({ where: { id: enrollmentId }, data: { linkSentAt: new Date() } });
+
+  const when = classTime(e.batch);
+  const text = onTrial
+    ? `You're booked, ${firstName(e.lead)}! Your free trial of ${e.batch.name} (${when}) runs ${formatDate(e.trialStart)} – ${formatDate(e.trialEnd)}.\n\nThis link is for your trial days: ${link}\n\nYou'll get your regular class link after payment.`
+    : `Here's your class link for ${e.batch.name} (${when}): ${link}`;
+  await deliverLink(e, link, text);
 }
 
-/** Job `zoomCancel` (old registrant after a batch move). */
-export async function cancelRegistrant(meetingId: bigint, registrantId: string) {
-  await zoom.cancelRegistrant(meetingId, registrantId);
+/** "Send the new link" after staff changed a batch's link. Returns how many sends were queued. */
+export async function queueNewLink(batchId: string, kind: LinkKind): Promise<number> {
+  const recipients = await db.enrollment.findMany({
+    where: { batchId, status: STAGE[kind], lead: { optedOutAt: null } },
+    select: { id: true, leadId: true },
+  });
+  // Not one transaction: a big batch would outrun its timeout, and a retry can't double-send.
+  for (const r of recipients) {
+    await enqueue('sendMessage', { leadId: r.leadId, enrollmentId: r.id, link: kind });
+  }
+  return recipients.length;
+}
+
+/**
+ * Job `sendMessage` from queueNewLink. Reads everything fresh: by now the enrollment may have paid
+ * or expired, or already hold this link, so a re-run or a second confirm doesn't message twice.
+ */
+export async function sendNewLink(enrollmentId: string, kind: LinkKind) {
+  const e = await load(enrollmentId);
+  const link = kind === 'trial' ? e.batch.trialLink : e.batch.paidLink;
+  if (e.status !== STAGE[kind] || !link || e.zoomJoinUrl === link) return;
+  await deliverLink(
+    e,
+    link,
+    `Hi ${firstName(e.lead)}, the link for your ${e.batch.name} classes has changed. Please use this one from now on: ${link}`,
+  );
 }

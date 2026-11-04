@@ -2,7 +2,7 @@
 # Times are the server's local time: set the server timezone to Asia/Kolkata
 # (sudo timedatectl set-timezone Asia/Kolkata) or shift the hours below.
 
-# Job queue: webhooks, Zoom registration, messages, payment links (every minute)
+# Job queue: webhooks, class links, messages, payment links (every minute)
 * * * * *    curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/jobs > /dev/null
 # Bot nudges: re-ask at 3 h / 22 h of silence, drop at 24 h (every 30 min)
 */30 * * * * curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/nudges > /dev/null

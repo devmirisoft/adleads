@@ -52,7 +52,7 @@ export function AssignBatchDialog({
         <DialogHeader>
           <DialogTitle>Assign {leadName} to a batch</DialogTitle>
           <DialogDescription>
-            Starts their free trial and sends their personal Zoom link.
+            Starts their free trial and sends the batch&apos;s trial link.
           </DialogDescription>
         </DialogHeader>
         {sorted.length === 0 ? (

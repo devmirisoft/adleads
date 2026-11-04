@@ -56,7 +56,7 @@ export type AssignResult = { result: 'trial'; enrollmentId: string } | { result:
 
 /**
  * Give a QUALIFIED/WAITLISTED lead a trial seat: lock the batch, check capacity, create the TRIAL
- * enrollment, take the seat, lead → TRIAL_ACTIVE, queue Zoom registration — one transaction.
+ * enrollment, take the seat, lead → TRIAL_ACTIVE, queue the trial link — one transaction.
  * No seat → lead WAITLISTED.
  */
 export async function assignSeat(
@@ -92,7 +92,6 @@ export async function assignSeat(
       // Same lead back in the same batch (e.g. after a waitlist): start a fresh trial.
       update: {
         ...trial,
-        zoomRegistrantId: null,
         zoomJoinUrl: null,
         linkSentAt: null,
         cancelledAt: null,
@@ -102,20 +101,17 @@ export async function assignSeat(
     await takeSeat(tx, batch);
     await tx.lead.update({ where: { id: leadId }, data: { courseId: batch.course_id } });
     await transition(leadId, 'TRIAL_ACTIVE', { actor }, tx);
-    await enqueue('zoomRegister', { enrollmentId: enrollment.id, leadId }, { tx });
+    await enqueue('sendTrialLink', { enrollmentId: enrollment.id, leadId }, { tx });
     return { result: 'trial', enrollmentId: enrollment.id };
   });
 }
 
 /**
  * Move a live (TRIAL/PAID) enrollment to another batch: take the new seat, free the old one,
- * queue cancelling the old Zoom registrant and registering on the new meeting.
+ * queue the new batch's link for their stage.
  */
 export async function moveBatch(enrollmentId: string, newBatchId: string) {
-  const e = await db.enrollment.findUniqueOrThrow({
-    where: { id: enrollmentId },
-    include: { batch: { select: { zoomMeetingId: true } } },
-  });
+  const e = await db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
   if (e.status !== 'TRIAL' && e.status !== 'PAID') {
     throw new Error('Only trial or paid enrollments can change batch.');
   }
@@ -134,20 +130,9 @@ export async function moveBatch(enrollmentId: string, newBatchId: string) {
     await releaseSeat(tx, locked.get(e.batchId)!);
     await tx.enrollment.update({
       where: { id: enrollmentId },
-      data: { batchId: newBatchId, zoomRegistrantId: null, zoomJoinUrl: null, linkSentAt: null },
+      data: { batchId: newBatchId, zoomJoinUrl: null, linkSentAt: null },
     });
-    if (e.zoomRegistrantId && e.batch.zoomMeetingId) {
-      await enqueue(
-        'zoomCancel',
-        {
-          meetingId: String(e.batch.zoomMeetingId),
-          registrantId: e.zoomRegistrantId,
-          leadId: e.leadId,
-        },
-        { tx },
-      );
-    }
-    await enqueue('zoomRegister', { enrollmentId, leadId: e.leadId }, { tx });
+    await enqueue('sendTrialLink', { enrollmentId, leadId: e.leadId }, { tx });
   });
 }
 

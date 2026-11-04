@@ -14,6 +14,11 @@ export interface WhatsAppClient {
   sendList(to: string, msg: { body: string; button: string; rows: ListRow[] }): Promise<SendResult>;
   /** Body params only, in order ({{1}}, {{2}}, …). */
   sendTemplate(to: string, name: string, lang: string, params: string[]): Promise<SendResult>;
+  /**
+   * Blue ticks on an inbound message. `typing` also shows "typing…" on the lead's phone
+   * until we reply or for 25 s, whichever comes first.
+   */
+  markRead(messageId: string, opts?: { typing?: boolean }): Promise<void>;
 }
 
 export const LIMITS = {

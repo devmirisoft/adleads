@@ -2,11 +2,12 @@
 import 'server-only';
 import { z } from 'zod';
 import { db } from '@/lib/db';
-import { CAN_ACT, guarded } from '@/modules/auth';
+import { ADMIN_ONLY, CAN_ACT, guarded } from '@/modules/auth';
+import type { LinkKind } from '@/modules/core/types';
 import { transition } from '@/modules/leads';
 import { assignSeat, moveBatch } from './assignSeat';
 import { cancel } from './cancel';
-import { sendTrialLink } from './sendTrialLink';
+import { queueNewLink, sendTrialLink } from './sendTrialLink';
 import { extendTrial } from './trial';
 
 const id = z.uuid();
@@ -51,10 +52,19 @@ export async function cancelEnrollmentAction(enrollmentId: string, reason: strin
   });
 }
 
-/** Registers on Zoom if needed and re-sends the personal link. */
+/** Re-sends the batch's link for their stage (trial or paid). */
 export async function resendTrialLinkAction(enrollmentId: string) {
   return guarded(CAN_ACT, async () => {
     await sendTrialLink(id.parse(enrollmentId));
     return null;
   });
+}
+
+/** Batch form, after a link changed: same role as editing the batch. Nothing on the page changes. */
+export async function queueNewLinkAction(batchId: string, kind: LinkKind) {
+  return guarded(
+    ADMIN_ONLY,
+    () => queueNewLink(id.parse(batchId), z.enum(['trial', 'paid']).parse(kind)),
+    { refresh: false },
+  );
 }

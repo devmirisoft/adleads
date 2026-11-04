@@ -1,4 +1,5 @@
 import type { Prisma } from '@/generated/prisma/client';
+import { requireUser } from '@/modules/auth';
 import { recordWebhook } from '@/modules/jobs';
 import { metaEventKey } from '@/modules/messaging';
 import { runJobsNow } from '../../../_jobs/handlers';
@@ -7,6 +8,7 @@ import { runJobsNow } from '../../../_jobs/handlers';
 // minus the signature check, and the queue is run immediately so the reply shows up at once.
 export async function POST(req: Request) {
   if (process.env.NODE_ENV === 'production') return new Response(null, { status: 404 });
+  await requireUser();
   const raw = await req.text();
   let payload: Prisma.InputJsonValue;
   try {

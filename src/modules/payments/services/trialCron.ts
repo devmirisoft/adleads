@@ -1,11 +1,12 @@
 import 'server-only';
 import { now } from '@/lib/clock';
-import { linksAreFake } from '@/lib/config';
+import { paymentLinksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { addDays, istDate } from '@/modules/core/utils';
 import { expire, firstName, sendClassReminders } from '@/modules/enrollments';
 import { sendTemplate } from '@/modules/messaging';
 import { getSetting } from '@/modules/settings';
+import { needsReview } from './markPaid';
 import { requestPayment } from './requestPayment';
 
 export type CronResult = { done: number; failed: string[] };
@@ -28,15 +29,14 @@ async function each<T extends { id: string }>(items: T[], run: (item: T) => Prom
  * (or later, for short/extended trials), and the last-day reminder.
  */
 export async function runTrialsCron() {
-  // Every message here carries a Zoom or Razorpay link.
-  if (linksAreFake()) {
+  // Class links are real in any mode. Everything after this carries a Razorpay link.
+  const classReminders = await sendClassReminders();
+  if (paymentLinksAreFake()) {
     const skipped: CronResult = { done: 0, failed: [] };
-    return { classReminders: 0, paymentRequests: skipped, lastDayReminders: skipped };
+    return { classReminders, paymentRequests: skipped, lastDayReminders: skipped };
   }
   const today = istDate(await now());
   const daysBefore = await getSetting('reminder_days_before');
-
-  const classReminders = await sendClassReminders();
 
   const due = await db.enrollment.findMany({
     where: {
@@ -77,8 +77,9 @@ export async function runTrialsCron() {
 
 /**
  * Daily 23:30 IST: expire trials whose last day is today or earlier and still unpaid.
- * A lead that never got a payment link gets one first (PAYMENT_PENDING is the only way to EXPIRED),
- * so they can still pay to re-enroll.
+ * A lead that never got a payment link gets one first, so they can still pay to re-enroll. While
+ * payment links are fake there's none to send: the trial still ends on time, so its seat goes back
+ * to the waitlist, and staff are flagged to collect the payment by hand.
  */
 export async function expireDueTrials(): Promise<CronResult> {
   const today = istDate(await now());
@@ -86,8 +87,17 @@ export async function expireDueTrials(): Promise<CronResult> {
     where: { status: 'TRIAL', trialEnd: { lte: today } },
     include: { lead: { select: { status: true } } },
   });
+  const noPaymentLinks = paymentLinksAreFake();
   return each(due, async (e) => {
-    if (e.lead.status === 'TRIAL_ACTIVE') await requestPayment(e.id, { actor: 'cron' });
+    if (e.lead.status === 'TRIAL_ACTIVE' && !noPaymentLinks) {
+      await requestPayment(e.id, { actor: 'cron' });
+    }
     await expire(e.id, { actor: 'cron' });
+    if (noPaymentLinks) {
+      await needsReview(
+        e.leadId,
+        'trial ended with no payment link sent. Collect the payment, then record a manual payment.',
+      );
+    }
   });
 }

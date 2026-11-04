@@ -1,5 +1,6 @@
 import 'server-only';
 import { db } from '@/lib/db';
+import { publishInboxChanged } from '@/lib/realtime/client';
 import type { JobHandlers, JobType, RunResult } from '../types';
 
 const MAX_ATTEMPTS = 5;
@@ -52,8 +53,11 @@ export async function runDue(handlers: JobHandlers, limit = 20): Promise<RunResu
     try {
       const handler = handlers[job.type as JobType];
       if (!handler) throw new Error(`No handler for job type "${job.type}"`);
-      await handler(job.payload);
-      await db.job.update({ where: { id: job.id }, data: { status: 'DONE', lastError: null } });
+      const note = await handler(job.payload);
+      await db.job.update({
+        where: { id: job.id },
+        data: { status: 'DONE', lastError: note || null },
+      });
       result.done++;
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
@@ -80,5 +84,6 @@ async function flagLead(payload: unknown) {
   const leadId = (payload as { leadId?: unknown } | null)?.leadId;
   if (typeof leadId === 'string') {
     await db.lead.updateMany({ where: { id: leadId }, data: { needsHuman: true } });
+    await publishInboxChanged();
   }
 }

@@ -19,12 +19,13 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       include: ['tests/**/*.test.ts'],
-      // Integrations stay fake whatever .env says: a test must never message a real number.
+      // Integrations stay fake whatever .env says: a test must never reach a real phone or browser.
       env: {
         ...env,
         ...(testDb && { DATABASE_URL: testDb, TEST_DATABASE_URL: testDb }),
         INTEGRATIONS_MODE: 'fake',
         WA_MODE: 'fake',
+        REALTIME_MODE: 'off',
       },
       globalSetup: './tests/globalSetup.ts',
       fileParallelism: false, // DB tests share one database

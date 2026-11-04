@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
 import { runJobsNow } from '@/app/_jobs/handlers';
+import { whatsapp } from '@/lib/whatsapp/client';
 import { recordWebhook } from '@/modules/jobs';
 import {
   buildMetaPayload,
@@ -10,7 +11,7 @@ import {
   type MessageBody,
   type SimulatedInbound,
 } from '@/modules/messaging';
-import { db, hasTestDb, resetDb, seedBasics } from '../helpers/db';
+import { db, hasTestDb, resetDb, seedBasics, TRIAL_LINK } from '../helpers/db';
 
 // Replays WhatsApp webhooks through the real pipeline: store event → processWebhook job → bot.
 const WA = '919812345678'; // the sender in tests/fixtures/meta/text_with_referral.json
@@ -86,10 +87,26 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     l = await lead();
     expect(l).toMatchObject({ status: 'TRIAL_ACTIVE', name: 'Rahul Sharma', currentStep: null });
     const e = await db.enrollment.findFirstOrThrow({ where: { leadId: l.id } });
-    expect(e.zoomJoinUrl).toMatch(/^https:\/\/zoom\.example\/j\/81000000002\?tk=/);
-    expect((await lastOut()).text).toContain(e.zoomJoinUrl!);
+    expect(e.zoomJoinUrl).toBe(TRIAL_LINK);
+    const sent = (await lastOut()).text;
+    expect(sent).toContain(TRIAL_LINK);
+    expect(sent).toContain('for your trial days');
+    expect(sent).toContain('regular class link after payment');
     const answers = await db.answer.findMany({ where: { leadId: l.id } });
     expect(answers.map((a) => a.questionKey).sort()).toEqual(['batch', 'course', 'name']);
+  });
+
+  it('shows "typing…" before a bot reply, but not once a person has the chat', async () => {
+    const markRead = vi.spyOn(whatsapp, 'markRead');
+    await deliver(fixture('text_with_referral'));
+    expect(markRead).toHaveBeenCalledOnce();
+    expect(markRead).toHaveBeenLastCalledWith(expect.any(String), { typing: true });
+
+    await db.lead.update({ where: { phoneE164: PHONE }, data: { needsHuman: true } });
+    markRead.mockClear();
+    await say({ kind: 'text', text: 'Anyone there?' });
+    expect(markRead).not.toHaveBeenCalled();
+    markRead.mockRestore();
   });
 
   it('two senders in one batch become two separate leads and threads', async () => {

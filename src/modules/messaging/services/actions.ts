@@ -3,7 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 import { CAN_ACT, guarded } from '@/modules/auth';
 import { TEMPLATE_NAMES, type TemplateName } from '../constants/templates';
-import { toChatMessage } from './inbound';
+import { toChatMessage } from '../utils/thread';
 import { OutsideWindowError, sendTemplate, sendText } from './send';
 
 const uuid = z.uuid();
@@ -23,34 +23,34 @@ async function orExplain<T>(p: Promise<T | null>): Promise<T> {
   }
 }
 
-// Both actions return the QUEUED row straight away; the thread's polling carries the ticks from
-// there, so the page itself doesn't need refreshing.
+// Both return the QUEUED row straight away and call Meta after the response. The thread's push or
+// polling carries the ticks from there, so the page itself isn't refreshed.
 
-/** Staff free-form reply (only inside the 24 h window). `messageId` is the client's optimistic id. */
-export async function sendReply(id: string, text: string, messageId: string) {
+/** Staff free-form reply (only inside the 24 h window). */
+export async function sendReply(id: string, text: string, clientId: string) {
   return guarded(
     CAN_ACT,
     async (user) => {
       const body = z.string().trim().min(1, 'Type a message first').max(4096).parse(text);
-      const opts = { sentBy: user.id, id: uuid.parse(messageId), background: true };
+      const opts = { sentBy: user.id, clientId: uuid.parse(clientId), background: true };
       return toChatMessage(await orExplain(sendText(uuid.parse(id), body, opts)));
     },
     { refresh: false },
   );
 }
 
-/** Staff-sent approved template (works any time). `messageId` is the client's optimistic id. */
+/** Staff-sent approved template (works any time). */
 export async function sendTemplateReply(
   id: string,
   name: TemplateName,
   vars: Record<string, string>,
-  messageId: string,
+  clientId: string,
 ) {
   return guarded(
     CAN_ACT,
     async (user) => {
       const template = z.enum(TEMPLATE_NAMES as [TemplateName, ...TemplateName[]]).parse(name);
-      const opts = { sentBy: user.id, id: uuid.parse(messageId), background: true };
+      const opts = { sentBy: user.id, clientId: uuid.parse(clientId), background: true };
       // sendTemplate validates vars against the template.
       const sent = await orExplain(sendTemplate(uuid.parse(id), template, vars as never, opts));
       return toChatMessage(sent);

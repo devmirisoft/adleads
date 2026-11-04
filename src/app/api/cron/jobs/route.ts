@@ -2,6 +2,8 @@ import { runDue } from '@/modules/jobs';
 import { isCronRequest, unauthorized } from '../../../_jobs/cronAuth';
 import { jobHandlers } from '../../../_jobs/handlers';
 
+export const maxDuration = 60;
+
 // Every minute.
 export async function POST(req: Request) {
   if (!isCronRequest(req)) return unauthorized();

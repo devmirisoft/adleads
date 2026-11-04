@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Send } from 'lucide-react';
 import {
   Button,
@@ -12,33 +12,36 @@ import {
   SelectValue,
   Textarea,
 } from '@/modules/core/components';
-import type { ApiResult } from '@/modules/core/types';
 import type { TemplateName } from '../constants/templates';
-import { sendReply, sendTemplateReply } from '../services/actions';
-import type { ChatMessage } from '../types';
 
 export type TemplateOption = { name: TemplateName; preview: string; vars: Record<string, string> };
 
-/** Shows `draft` in the thread now and runs the send with its id. `restore` refills the input if it's refused. */
-export type SendMessage = (
-  draft: Pick<ChatMessage, 'type' | 'templateName' | 'body'>,
-  run: (messageId: string) => Promise<ApiResult<ChatMessage>>,
-  restore: () => void,
-) => void;
+const TYPING_EVERY_MS = 20_000; // Meta's indicator lasts 25 s
 
 type Props = {
-  leadId: string;
   /** Lead wrote within the last 24 h: free-form allowed. */
   windowOpen: boolean;
   optedOut: boolean;
   /** Templates whose variables could be filled from this lead's data. */
   templates: TemplateOption[];
-  onSend: SendMessage;
+  onSendText: (text: string) => void;
+  onSendTemplate: (template: TemplateOption) => void;
+  onTyping: () => void;
 };
 
-export function ReplyBox({ leadId, windowOpen, optedOut, templates, onSend }: Props) {
+/** The composer. Sends never block it: the bubble appears in the thread, so it's ready for the next one. */
+export function ReplyBox({
+  windowOpen,
+  optedOut,
+  templates,
+  onSendText,
+  onSendTemplate,
+  onTyping,
+}: Props) {
   const [text, setText] = useState('');
   const [template, setTemplate] = useState<TemplateName | ''>('');
+  const input = useRef<HTMLTextAreaElement>(null);
+  const lastTyping = useRef(0);
 
   if (optedOut) {
     return (
@@ -48,6 +51,14 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates, onSend }: Pr
 
   const chosen = templates.find((t) => t.name === template);
 
+  function submit() {
+    const reply = text.trim();
+    if (!reply) return;
+    setText('');
+    onSendText(reply);
+    input.current?.focus(); // clicking Send moved focus to the button
+  }
+
   return (
     <div className="flex flex-col gap-3">
       {windowOpen ? (
@@ -55,17 +66,30 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates, onSend }: Pr
           className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
-            const reply = text;
-            setText('');
-            onSend(
-              { type: 'TEXT', templateName: null, body: { text: reply.trim() } },
-              (messageId) => sendReply(leadId, reply, messageId),
-              () => setText((typed) => typed || reply),
-            );
+            submit();
           }}
         >
-          <FormField id="reply" label="Reply">
-            <Textarea id="reply" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+          <FormField id="reply" label="Reply" help="Enter sends. Shift+Enter starts a new line.">
+            <Textarea
+              id="reply"
+              ref={input}
+              rows={2}
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                if (e.target.value.trim() && Date.now() - lastTyping.current > TYPING_EVERY_MS) {
+                  lastTyping.current = Date.now();
+                  onTyping();
+                }
+              }}
+              onKeyDown={(e) => {
+                // isComposing: Enter is confirming a word in a Hindi or other IME, not sending.
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+            />
           </FormField>
           <div className="flex justify-end">
             <Button type="submit" disabled={!text.trim()}>
@@ -75,8 +99,8 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates, onSend }: Pr
           </div>
         </form>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          More than 24 hours since they last wrote, so WhatsApp only allows an approved template.
+        <p className="rounded-lg bg-muted p-3 text-sm" role="status">
+          Customer hasn’t messaged in 24h — send a template
         </p>
       )}
       {templates.length > 0 && (
@@ -103,11 +127,7 @@ export function ReplyBox({ leadId, windowOpen, optedOut, templates, onSend }: Pr
               onClick={() => {
                 if (!chosen) return;
                 setTemplate('');
-                onSend(
-                  { type: 'TEMPLATE', templateName: chosen.name, body: { text: chosen.preview } },
-                  (messageId) => sendTemplateReply(leadId, chosen.name, chosen.vars, messageId),
-                  () => setTemplate(chosen.name),
-                );
+                onSendTemplate(chosen);
               }}
             >
               Send template

@@ -24,12 +24,12 @@ describe.skipIf(!hasTestDb)('assignSeat()', () => {
     expect(after).toMatchObject({ seatsTaken: 1, status: 'FULL' });
     expect(await db.enrollment.count()).toBe(1);
 
-    // Trial dates: 3-day course trial, inclusive end; Zoom registration queued.
+    // Trial dates: 3-day course trial, inclusive end; trial link queued.
     const e = await db.enrollment.findFirstOrThrow();
     expect((e.trialEnd.getTime() - e.trialStart.getTime()) / 86_400_000).toBe(
       (course.trialDays ?? 3) - 1,
     );
-    expect(await db.job.count({ where: { type: 'zoomRegister' } })).toBe(1);
+    expect(await db.job.count({ where: { type: 'sendTrialLink' } })).toBe(1);
   });
 
   it('never oversells under heavier contention', async () => {

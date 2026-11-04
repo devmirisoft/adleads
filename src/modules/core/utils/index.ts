@@ -4,8 +4,10 @@ export { formatPhone, normalizePhone } from './phone';
 export {
   addDays,
   addTrialDays,
+  formatClockTime,
   formatDate,
   formatDateTime,
+  formatDayLabel,
   formatDays,
   formatRelative,
   formatTime,

@@ -1,9 +1,8 @@
 import 'server-only';
 import type { PaymentMethod } from '@/generated/prisma/client';
-import { linksAreFake } from '@/lib/config';
 import { db, isUniqueViolation, type Tx } from '@/lib/db';
 import { formatMoney } from '@/modules/core/utils';
-import { ensureRegistered, queueEnrollmentConfirmed, reclaimSeat } from '@/modules/enrollments';
+import { queueEnrollmentConfirmed, reclaimSeat } from '@/modules/enrollments';
 import { transition, type Actor } from '@/modules/leads';
 
 export type MarkPaidInput = {
@@ -18,8 +17,12 @@ export type MarkPaidInput = {
 
 export type MarkPaidResult = 'enrolled' | 'duplicate' | 'needs_review';
 
-/** Flag the lead for staff with a note saying why, instead of enrolling. */
-async function needsReview(leadId: string, note: string, tx: Tx = db): Promise<MarkPaidResult> {
+/** Flag the lead for staff with a note saying why. */
+export async function needsReview(
+  leadId: string,
+  note: string,
+  tx: Tx = db,
+): Promise<MarkPaidResult> {
   const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId }, select: { notes: true } });
   await tx.lead.update({
     where: { id: leadId },
@@ -34,7 +37,7 @@ async function needsReview(leadId: string, note: string, tx: Tx = db): Promise<M
 /**
  * THE single path to ENROLLED (Razorpay webhook and staff "Mark paid" both land here).
  * Idempotent on razorpayPaymentId / an already-PAID payment. Amount must equal the course fee.
- * A payment after the trial EXPIRED takes the seat back and gets a new Zoom link.
+ * A payment after the trial EXPIRED takes the seat back. Sends the batch's paid link.
  */
 export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
   if (input.razorpayPaymentId) {
@@ -68,8 +71,6 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
   }
 
   const wasExpired = e.status === 'EXPIRED';
-  // Zoom stays outside the transaction; it's idempotent, so a retry after a failure is safe.
-  const joinUrl = linksAreFake() ? null : await ensureRegistered(e.id);
   try {
     await db.$transaction(async (tx) => {
       await tx.payment.update({
@@ -84,7 +85,8 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
       });
       await tx.enrollment.update({
         where: { id: e.id },
-        data: { status: 'PAID', paidAt: new Date() },
+        // Clears the trial link: the bot resends what's stored here, and that's no longer their link.
+        data: { status: 'PAID', paidAt: new Date(), zoomJoinUrl: null, linkSentAt: null },
       });
       const overbooked = wasExpired && (await reclaimSeat(tx, e.batchId));
       await transition(
@@ -102,12 +104,12 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
       }
       // Outbox: what they're owed commits with the payment. A process killed after this loses
       // nothing, and its re-run stops at 'duplicate'. Never send directly from here.
-      if (joinUrl) {
-        await queueEnrollmentConfirmed(tx, e, joinUrl, input.actor);
+      if (e.batch.paidLink) {
+        await queueEnrollmentConfirmed(tx, e, e.batch.paidLink, input.actor);
       } else {
         await needsReview(
           e.leadId,
-          `enrolled in ${e.batch.name}, but Zoom isn't live yet. Send the class link in the chat.`,
+          `Paid, but batch ${e.batch.name} has no paid link. Add it on the batch page, then use "Resend class link".`,
           tx,
         );
       }

@@ -2,6 +2,7 @@
 import 'server-only';
 import { z } from 'zod';
 import { db } from '@/lib/db';
+import { publishInboxChanged } from '@/lib/realtime/client';
 import { CAN_ACT, guarded } from '@/modules/auth';
 import { MANUAL_STATUS_TARGETS, type LeadStatus } from '../constants/statuses';
 import { transition } from './transition';
@@ -35,6 +36,7 @@ export async function resolveLead(leadId: string) {
         data: { status: 'READ' },
       }),
     ]);
+    await publishInboxChanged();
     return null;
   });
 }

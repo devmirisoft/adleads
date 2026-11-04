@@ -20,16 +20,25 @@ import {
   toast,
   type DataTableColumn,
 } from '@/modules/core/components';
-import { batchSchedule } from '../utils';
+import { batchSchedule, needsTrialLink } from '../utils';
 import { closeBatchAction } from '../services/actions';
 import type { BatchListItem } from '../services/queries';
+import type { SendNewLink } from '../types';
 import { BatchFormDialog } from './BatchForm';
 import { SeatMeter } from './SeatMeter';
 
 type Course = { id: string; name: string };
 
 /** ⋯ Edit / Close for one batch (ADMIN). Also used on the batch detail page header. */
-export function BatchActions({ batch, courses }: { batch: BatchListItem; courses: Course[] }) {
+export function BatchActions({
+  batch,
+  courses,
+  sendNewLink,
+}: {
+  batch: BatchListItem;
+  courses: Course[];
+  sendNewLink: SendNewLink;
+}) {
   const [dialog, setDialog] = useState<'edit' | 'close' | null>(null);
   return (
     <>
@@ -53,13 +62,14 @@ export function BatchActions({ batch, courses }: { batch: BatchListItem; courses
         onOpenChange={(o) => setDialog(o ? 'edit' : null)}
         courses={courses}
         batch={batch}
+        sendNewLink={sendNewLink}
       />
       <ConfirmDialog
         open={dialog === 'close'}
         onOpenChange={(o) => setDialog(o ? 'close' : null)}
         tone="danger"
         title={`Close ${batch.course.name} — ${batch.name}?`}
-        description={`No new trials will be booked into it. The ${batch.seatsTaken} current student(s) keep their seats and Zoom links.`}
+        description={`No new trials will be booked into it. The ${batch.seatsTaken} current student(s) keep their seats and class links.`}
         confirmLabel="Close batch"
         onConfirm={async () => {
           const res = await closeBatchAction(batch.id);
@@ -92,9 +102,11 @@ type Props = {
   pageSize: number;
   courses: Course[];
   canEdit: boolean;
+  /** Needed with `canEdit`. */
+  sendNewLink?: SendNewLink;
 };
 
-export function BatchTable({ data, total, page, pageSize, courses, canEdit }: Props) {
+export function BatchTable({ data, total, page, pageSize, courses, canEdit, sendNewLink }: Props) {
   const columns = useMemo<DataTableColumn<BatchListItem>[]>(() => {
     const cols: DataTableColumn<BatchListItem>[] = [
       {
@@ -131,18 +143,25 @@ export function BatchTable({ data, total, page, pageSize, courses, canEdit }: Pr
       {
         id: 'status',
         header: 'Status',
-        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+        cell: ({ row: { original: b } }) => (
+          <div className="flex flex-col items-start gap-1">
+            <StatusBadge status={b.status} />
+            {needsTrialLink(b) && <StatusBadge status="NO_TRIAL_LINK" />}
+          </div>
+        ),
       },
     ];
-    if (canEdit) {
+    if (canEdit && sendNewLink) {
       cols.push({
         id: 'actions',
         header: () => <span className="sr-only">Actions</span>,
-        cell: ({ row }) => <BatchActions batch={row.original} courses={courses} />,
+        cell: ({ row }) => (
+          <BatchActions batch={row.original} courses={courses} sendNewLink={sendNewLink} />
+        ),
       });
     }
     return cols;
-  }, [canEdit, courses]);
+  }, [canEdit, courses, sendNewLink]);
 
   return (
     <DataTable

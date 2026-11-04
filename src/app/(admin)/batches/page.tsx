@@ -9,6 +9,7 @@ import {
 } from '@/modules/batches';
 import { PageHeader } from '@/modules/core/components';
 import { flatParams } from '@/modules/core/utils';
+import { sendNewBatchLink } from '../../_jobs/actions';
 
 export default async function BatchesPage({ searchParams }: PageProps<'/batches'>) {
   const user = await requireUser();
@@ -20,7 +21,7 @@ export default async function BatchesPage({ searchParams }: PageProps<'/batches'
     <>
       <PageHeader
         title="Batches"
-        description="Class timings, seats and Zoom meetings"
+        description="Class timings, seats and class links"
         actions={canEdit && <AddBatchButton courses={courses} />}
       />
       <BatchFilterBar courses={courses} />
@@ -31,6 +32,7 @@ export default async function BatchesPage({ searchParams }: PageProps<'/batches'
         pageSize={result.pageSize}
         courses={courses}
         canEdit={canEdit}
+        sendNewLink={sendNewBatchLink}
       />
     </>
   );

@@ -1,14 +1,22 @@
 // Public API of this module — import from '@/modules/messaging' only.
 export type * from './types';
 export {
+  markInboundRead,
   OutsideWindowError,
   sendButtons,
   sendList,
   sendTemplate,
   sendText,
+  showTyping,
   type SendOptions,
 } from './services/send';
-export { applyStatus, hasMessage, listMessages, recordInbound } from './services/inbound';
+export {
+  applyStatus,
+  hasMessage,
+  listMessages,
+  listMessagesSince,
+  recordInbound,
+} from './services/inbound';
 export { isWindowOpen } from './services/window';
 export { metaEventKey, parseMetaWebhook } from './services/parseWebhook';
 export {

@@ -60,8 +60,8 @@ export default function PrivacyPage() {
           <strong>Razorpay</strong> processes payments.
         </li>
         <li>
-          <strong>Zoom</strong> hosts the live classes. We register you with your name and an
-          address made from your phone number so you get a personal class link.
+          <strong>Zoom</strong> hosts the live classes. We send you the class link on WhatsApp, and
+          Zoom sees the name you enter when you join.
         </li>
         <li>Our hosting and database providers store the data on our behalf.</li>
       </ul>

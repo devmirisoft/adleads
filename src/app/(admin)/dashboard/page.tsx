@@ -1,4 +1,3 @@
-import { connection } from 'next/server';
 import { requireUser } from '@/modules/auth';
 import {
   FilterDateRange,
@@ -20,8 +19,7 @@ import {
 import { LEAD_STATUS } from '@/modules/leads';
 
 export default async function DashboardPage({ searchParams }: PageProps<'/dashboard'>) {
-  await connection(); // stats are "as of now": render per request
-  await requireUser();
+  await requireUser(); // also makes this per request: the stats are "as of now"
   const sp = flatParams(await searchParams);
   const range = await resolveRange(sp.from, sp.to);
   const [stats, funnel, ads, batches] = await Promise.all([

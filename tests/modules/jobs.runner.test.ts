@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { jobHandlers } from '@/app/_jobs/handlers';
-import { zoom } from '@/lib/zoom/client';
 import { assignSeat, moveBatch, sendTrialLink } from '@/modules/enrollments';
 import { JOB_TYPES, runDue, type JobHandlers, type JobType } from '@/modules/jobs';
 import { markPaid, refundPayment, requestPayment } from '@/modules/payments';
@@ -50,6 +49,30 @@ describe.skipIf(!hasTestDb)('runDue()', () => {
     expect((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).needsHuman).toBe(true);
   });
 
+  it('old Zoom job rows are marked done with a note: never failed, no lead flagged', async () => {
+    const lead = await makeLead();
+    const rows = await Promise.all([
+      db.job.create({
+        data: { type: 'zoomRegister', payload: { enrollmentId: 'gone', leadId: lead.id } },
+      }),
+      db.job.create({
+        data: {
+          type: 'zoomCancel',
+          payload: { meetingId: '81000000002', registrantId: 'reg_1', leadId: lead.id },
+        },
+      }),
+    ]);
+
+    expect(await runDue(jobHandlers)).toEqual({ done: 2, failed: [] });
+
+    for (const row of rows) {
+      const after = await db.job.findUniqueOrThrow({ where: { id: row.id } });
+      expect(after.status).toBe('DONE');
+      expect(after.lastError).toContain('Zoom API was removed');
+    }
+    expect((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).needsHuman).toBe(false);
+  });
+
   it('claims one job at a time, up to the limit', async () => {
     await Promise.all([queued(), queued(), queued()]);
     const runningNow: number[] = [];
@@ -75,16 +98,14 @@ describe.skipIf(!hasTestDb)('jobs are safe to run twice', () => {
     return { batch, course, lead, enrollmentId: res.enrollmentId };
   };
 
-  it('zoomRegister: a re-run sends nothing; a batch move and staff resend still do', async () => {
+  it('sendTrialLink: a re-run sends nothing; a batch move and staff resend still do', async () => {
     const { batch, course, lead, enrollmentId } = await trial();
     const links = () => db.message.count({ where: { leadId: lead.id, direction: 'OUT' } });
     const enrollment = () => db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
 
-    await jobHandlers.zoomRegister({ enrollmentId });
-    const registered = await enrollment();
-    await jobHandlers.zoomRegister({ enrollmentId });
+    await jobHandlers.sendTrialLink({ enrollmentId });
+    await jobHandlers.sendTrialLink({ enrollmentId });
     expect(await links()).toBe(1);
-    expect((await enrollment()).zoomRegistrantId).toBe(registered.zoomRegistrantId);
 
     await sendTrialLink(enrollmentId); // "Resend class link"
     expect(await links()).toBe(2);
@@ -100,17 +121,17 @@ describe.skipIf(!hasTestDb)('jobs are safe to run twice', () => {
         startDate: batch.startDate,
         endDate: batch.endDate,
         capacity: batch.capacity,
-        zoomMeetingId: BigInt(81000000003),
         zoomHostUser: batch.zoomHostUser,
+        trialLink: 'https://zoom.example/j/other-trial',
       },
     });
     await moveBatch(enrollmentId, other.id);
-    await jobHandlers.zoomRegister({ enrollmentId });
+    await jobHandlers.sendTrialLink({ enrollmentId });
     expect(await links()).toBe(3);
-    expect((await enrollment()).zoomRegistrantId).not.toBe(registered.zoomRegistrantId);
+    expect((await enrollment()).zoomJoinUrl).toBe('https://zoom.example/j/other-trial');
   });
 
-  it('refund: a retry after Zoom fails finishes the cancel, and a third run changes nothing', async () => {
+  it('refund: a retry after a failure finishes the cancel, and a third run changes nothing', async () => {
     const { batch, enrollmentId } = await trial();
     await sendTrialLink(enrollmentId);
     const payment = await requestPayment(enrollmentId, { actor: 'test' });
@@ -123,13 +144,14 @@ describe.skipIf(!hasTestDb)('jobs are safe to run twice', () => {
     });
     const refund = () => refundPayment(payment.id, 'Test', { actor: 'test' });
 
-    const spy = vi.spyOn(zoom, 'cancelRegistrant').mockRejectedValueOnce(new Error('Zoom down'));
-    await expect(refund()).rejects.toThrow('Zoom down');
+    // The payment update failing leaves the enrollment cancelled and the payment still PAID.
+    const spy = vi.spyOn(db.payment, 'update').mockRejectedValueOnce(new Error('DB down'));
+    await expect(refund()).rejects.toThrow('DB down');
+    spy.mockRestore();
     expect((await db.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('PAID');
 
     await refund();
     await refund();
-    spy.mockRestore();
 
     expect((await db.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe(
       'REFUNDED',

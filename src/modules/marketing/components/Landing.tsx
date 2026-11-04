@@ -125,7 +125,7 @@ const STEPS = [
   },
   {
     title: 'Get your free trial link',
-    body: 'Your personal class link arrives on WhatsApp. Join from your phone or laptop.',
+    body: 'Your class link arrives on WhatsApp. Join from your phone or laptop.',
   },
   {
     title: 'Continue with a plan after the trial',

@@ -3,8 +3,11 @@ import { requireUser } from '@/modules/auth';
 import { PageHeader, Skeleton } from '@/modules/core/components';
 import { leadFiltersSchema, listLeads } from '@/modules/leads';
 import { WhatsAppSimulator } from '@/modules/messaging';
+import { devOnly } from '../../devOnly';
 
-export default function WhatsAppSimulatorPage() {
+export default async function WhatsAppSimulatorPage() {
+  devOnly();
+  await requireUser();
   return (
     <>
       <PageHeader

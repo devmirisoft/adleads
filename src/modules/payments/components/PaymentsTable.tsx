@@ -64,7 +64,7 @@ function RowActions({ payment: p }: { payment: PaymentListItem }) {
         onOpenChange={setConfirm}
         tone="danger"
         title={`Mark ${name}'s payment as refunded?`}
-        description={`Only record a refund you've already made. ${name}'s enrollment in ${p.enrollment.batch.name} is cancelled and their Zoom link stops working.`}
+        description={`Only record a refund you've already made. ${name}'s enrollment in ${p.enrollment.batch.name} is cancelled and their seat is freed. The batch's Zoom link is shared, so it keeps working until you change it.`}
         confirmLabel="Mark refunded"
         onConfirm={async () => {
           const res = await markRefundedAction(p.id);

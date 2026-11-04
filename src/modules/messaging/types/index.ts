@@ -39,6 +39,8 @@ export type MessageBody = {
   params?: string[];
   /** Bot bookkeeping: this message re-asked step N after an invalid answer. */
   retryStep?: number;
+  /** Staff thread: the browser's id for its optimistic bubble, so the saved row can replace it. */
+  clientId?: string;
 };
 
 /** A Message row as sent to the browser. */
@@ -53,5 +55,16 @@ export type ChatMessage = {
   sentBy: string;
   createdAt: string;
   /** Moves on every status change, so polling can find it and a late reply can't undo it. */
-  updatedAt: string;
 };
+
+/** One page of a thread (oldest first). Pass `cursor` as `?after=` to get what changed since. */
+export type ChatPage = {
+  messages: ChatMessage[];
+  /** Older messages exist: fetch them with `?before=<oldest id>`. */
+  hasMore: boolean;
+  cursor: string;
+};
+
+/** Pushed on a lead's channel. `refetch`: the row was too big to push, so fetch it. */
+export type ChatEvent =
+  { message: ChatMessage; refetch?: never } | { refetch: true; message?: never };

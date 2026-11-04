@@ -1,15 +1,13 @@
 import 'server-only';
 import { db, type Tx } from '@/lib/db';
-import { zoom } from '@/lib/zoom/client';
 import { enqueue } from '@/modules/jobs';
 import { canTransition, transition, type Actor } from '@/modules/leads';
 import { freeSeat } from './assignSeat';
 import { firstName } from './sendTrialLink';
 
 /**
- * Unpaid trial is over: Zoom registrant cancelled first, then EXPIRED, seat freed, lead EXPIRED,
- * `trial_ended` sent, and the freed seat offered to the first waitlisted lead for that batch.
- * The lead must already be PAYMENT_PENDING (payments.expireDueTrials requests payment first).
+ * Unpaid trial is over: EXPIRED, seat freed, lead EXPIRED, `trial_ended` sent, and the freed seat
+ * offered to the first waitlisted lead for that batch.
  */
 export async function expire(enrollmentId: string, { actor }: { actor: Actor }) {
   const e = await db.enrollment.findUniqueOrThrow({
@@ -21,14 +19,11 @@ export async function expire(enrollmentId: string, { actor }: { actor: Actor }) 
     throw new Error(`Can't expire while the lead is ${e.lead.status}.`);
   }
 
-  if (e.zoomRegistrantId && e.batch.zoomMeetingId) {
-    await zoom.cancelRegistrant(e.batch.zoomMeetingId, e.zoomRegistrantId);
-  }
   await db.$transaction(async (tx) => {
     await tx.enrollment.update({
       where: { id: enrollmentId },
-      // Link is dead; clearing it makes a late payment re-register (new link).
-      data: { status: 'EXPIRED', zoomRegistrantId: null, zoomJoinUrl: null },
+      // Their trial is over: clearing it stops the bot resending it, and reminders going out.
+      data: { status: 'EXPIRED', zoomJoinUrl: null },
     });
     await freeSeat(tx, e.batchId);
     await transition(e.leadId, 'EXPIRED', { actor }, tx);

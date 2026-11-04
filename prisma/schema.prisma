@@ -144,8 +144,13 @@ model Batch {
   endDate       DateTime    @map("end_date") @db.Date
   capacity      Int
   seatsTaken    Int         @default(0) @map("seats_taken")
+  /// Deprecated: the Zoom API is retired, nothing reads or writes this.
   zoomMeetingId BigInt?     @map("zoom_meeting_id")
   zoomHostUser  String?     @map("zoom_host_user")
+  /// Pasted by staff. Sent when a trial starts.
+  trialLink     String?     @map("trial_link")
+  /// Pasted by staff. Sent once payment is confirmed.
+  paidLink      String?     @map("paid_link")
   status        BatchStatus @default(OPEN)
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
@@ -266,7 +271,9 @@ model Enrollment {
   status           EnrollmentStatus
   trialStart       DateTime         @map("trial_start") @db.Date
   trialEnd         DateTime         @map("trial_end") @db.Date
+  /// Deprecated: the Zoom API is retired, nothing reads or writes this.
   zoomRegistrantId String?          @map("zoom_registrant_id")
+  /// The manual batch link actually sent to this lead (trial or paid). Named from the Zoom API days.
   zoomJoinUrl      String?          @map("zoom_join_url")
   linkSentAt       DateTime?        @map("link_sent_at")
   paidAt           DateTime?        @map("paid_at")

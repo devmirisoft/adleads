@@ -15,6 +15,19 @@ export function formatDate(value: Date | string): string {
   return formatInTimeZone(value, 'UTC', 'd MMM yyyy');
 }
 
+/** "4:30 PM" in IST: a chat bubble's corner. */
+export function formatClockTime(value: Date | string): string {
+  return formatInTimeZone(value, APP_TIMEZONE, 'h:mm a');
+}
+
+/** "Today", "Yesterday" or "14 Oct 2026" by IST calendar day: chat date separators. */
+export function formatDayLabel(value: Date | string, now: Date): string {
+  const days = (istDate(now).getTime() - istDate(new Date(value)).getTime()) / DAY;
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return formatInTimeZone(value, APP_TIMEZONE, 'd MMM yyyy');
+}
+
 /** "just now", "5 min ago", "2 h ago", "3 d ago"; older than a week falls back to the date. */
 export function formatRelative(value: Date | string, now: Date): string {
   const seconds = Math.round((now.getTime() - new Date(value).getTime()) / 1000);

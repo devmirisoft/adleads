@@ -1,6 +1,14 @@
 import { notFound } from 'next/navigation';
 import { ADMIN_ONLY, CAN_ACT, requireUser } from '@/modules/auth';
-import { BatchActions, batchSchedule, getBatch, listCourses, SeatMeter } from '@/modules/batches';
+import {
+  BatchActions,
+  batchSchedule,
+  ClassLink,
+  getBatch,
+  listCourses,
+  needsTrialLink,
+  SeatMeter,
+} from '@/modules/batches';
 import {
   DateTime,
   KeyValueList,
@@ -17,6 +25,7 @@ import {
   todayIst,
 } from '@/modules/enrollments';
 import { requestPaymentAction } from '@/modules/payments';
+import { sendNewBatchLink } from '../../../_jobs/actions';
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -40,7 +49,11 @@ export default async function BatchPage({ params, searchParams }: PageProps<'/ba
         title={batch.name}
         description={batch.course.name}
         backHref="/batches"
-        actions={ADMIN_ONLY.includes(user.role) && <BatchActions batch={batch} courses={courses} />}
+        actions={
+          ADMIN_ONLY.includes(user.role) && (
+            <BatchActions batch={batch} courses={courses} sendNewLink={sendNewBatchLink} />
+          )
+        }
       />
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
@@ -79,11 +92,26 @@ export default async function BatchPage({ params, searchParams }: PageProps<'/ba
                 label: 'Seats',
                 value: <SeatMeter taken={batch.seatsTaken} capacity={batch.capacity} />,
               },
-              {
-                label: 'Zoom meeting',
-                value: batch.zoomMeetingId ? String(batch.zoomMeetingId) : '—',
-              },
               { label: 'Zoom host', value: batch.zoomHostUser ?? '—' },
+              {
+                label: 'Trial link',
+                value: batch.trialLink ? (
+                  <ClassLink url={batch.trialLink} label="trial link" />
+                ) : needsTrialLink(batch) ? (
+                  <span className="flex flex-col items-start gap-1">
+                    <StatusBadge status="NO_TRIAL_LINK" />
+                    <span className="text-xs text-muted-foreground">
+                      The bot hands new bookings to staff until you add one.
+                    </span>
+                  </span>
+                ) : (
+                  '—'
+                ),
+              },
+              {
+                label: 'Paid link',
+                value: batch.paidLink ? <ClassLink url={batch.paidLink} label="paid link" /> : '—',
+              },
             ]}
           />
         </SectionCard>

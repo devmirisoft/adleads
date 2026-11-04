@@ -1,7 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
 import { NextRequest } from 'next/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { config, proxy } from '@/proxy';
 
 // For plain paths Next compiles the matcher to this same anchored regex (plus optional .rsc/.json suffixes).
@@ -9,23 +7,6 @@ const runsOn = (path: string) => config.matcher.some((m) => new RegExp(`^${m}$`)
 
 const request = (path: string, cookie = '') =>
   new NextRequest(`https://app.test${path}`, { headers: { cookie } });
-
-const filesNamed = (name: string, dir: string) =>
-  readdirSync(dir, { recursive: true, encoding: 'utf8' })
-    .filter((f) => basename(f) === name)
-    .map((f) => join(dir, f));
-
-// The proxy only checks that a cookie exists, and client navigations skip layouts, so a page that
-// relies on its layout's auth check is readable with any made-up cookie. Each one must check itself.
-describe('checks the session itself', () => {
-  it.each([
-    ...filesNamed('page.tsx', 'src/app/(admin)'),
-    ...filesNamed('page.tsx', 'src/app/dev/(tools)'),
-    ...filesNamed('route.ts', 'src/app/api/admin'),
-  ])('%s', (file) => {
-    expect(readFileSync(file, 'utf8')).toMatch(/requireUser|requireRole/);
-  });
-});
 
 describe('proxy cookie check', () => {
   it.each([
@@ -52,6 +33,27 @@ describe('proxy cookie check', () => {
   });
 });
 
+describe('dev tools in production', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ['/dev/ui', ''],
+    ['/dev', ''],
+    ['/dev/clock', 'authjs.session-token=x'],
+    ['/dev/pay/abc', 'authjs.session-token=x'],
+  ])('%s is 404, cookie "%s"', (path, cookie) => {
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(proxy(request(path, cookie)).status).toBe(404);
+  });
+
+  it('leaves other paths alone, and dev tools work outside production', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(proxy(request('/developers', 'authjs.session-token=x')).status).not.toBe(404);
+    vi.stubEnv('NODE_ENV', 'development');
+    expect(proxy(request('/dev/ui', 'authjs.session-token=x')).status).not.toBe(404);
+  });
+});
+
 describe('proxy matcher', () => {
   it.each([
     '/',
@@ -75,6 +77,7 @@ describe('proxy matcher', () => {
     '/leads/abc',
     '/settings',
     '/api/admin/leads',
+    '/api/realtime/auth',
     '/dev/ui',
     '/contacts',
     '/terms-old',

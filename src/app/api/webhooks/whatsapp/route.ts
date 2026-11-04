@@ -6,6 +6,8 @@ import { recordWebhook } from '@/modules/jobs';
 import { metaEventKey } from '@/modules/messaging';
 import { runJobsAfterResponse } from '../../../_jobs/handlers';
 
+export const maxDuration = 60;
+
 /** Meta's one-time subscription handshake: echo hub.challenge if the verify token matches. */
 export function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams;

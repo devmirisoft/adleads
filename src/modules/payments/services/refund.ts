@@ -4,9 +4,9 @@ import { cancel } from '@/modules/enrollments';
 import type { Actor } from '@/modules/leads';
 
 /**
- * Record a refund (Razorpay webhook or staff "Mark refunded"): enrollment cancelled (Zoom link
- * stops, seat freed, lead CANCELLED), then payment REFUNDED. Idempotent, and in this order so a
- * retry after a failure finishes the cancel instead of seeing REFUNDED and stopping.
+ * Record a refund (Razorpay webhook or staff "Mark refunded"): enrollment cancelled (seat freed,
+ * lead CANCELLED), then payment REFUNDED. Idempotent, and in this order so a retry after a failure
+ * finishes the cancel instead of seeing REFUNDED and stopping.
  */
 export async function refundPayment(
   paymentId: string,
