@@ -9,6 +9,7 @@ import { assignSeat, moveBatch } from './assignSeat';
 import { cancel } from './cancel';
 import { queueNewLink, sendTrialLink } from './sendTrialLink';
 import { extendTrial } from './trial';
+import { offerSeat } from './waitlistOffers';
 
 const id = z.uuid();
 const batchIdSchema = z.uuid('Pick a batch');
@@ -25,9 +26,18 @@ export async function assignBatchAction(leadId: string, batchId: string) {
       throw new Error('Only leads still asking, qualified or waitlisted can be given a batch.');
     }
     const res = await assignSeat(lid, bid, { actor: user.id });
-    if (res.result === 'waitlisted')
-      throw new Error('That batch just filled up — the lead is waitlisted.');
+    if (res.result === 'waitlisted') {
+      throw new Error('That batch has no free seat now — the lead is waitlisted. Pick another.');
+    }
     return res.enrollmentId;
+  });
+}
+
+/** Holds a seat for a waitlisted lead and sends them the "Book my seat" template. */
+export async function offerSeatAction(leadId: string, batchId: string) {
+  return guarded(CAN_ACT, async (user) => {
+    await offerSeat(id.parse(leadId), batchIdSchema.parse(batchId), { actor: user.id });
+    return null;
   });
 }
 

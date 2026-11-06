@@ -424,7 +424,7 @@ async function seedLeads(salesId: string) {
     if (spec.status === 'OPTED_OUT') msg('IN', { text: 'STOP' });
     if (spec.status === 'WAITLISTED') {
       msg('OUT', {
-        text: `Thanks ${firstName}! ${batch!.name} is full right now. We'll message you as soon as a seat opens.`,
+        text: `Thanks ${firstName}! There are currently no available seats in ${batch!.name}. Our team will follow up with you.`,
       });
     }
 

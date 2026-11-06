@@ -1,19 +1,16 @@
 import 'server-only';
 import { db } from '@/lib/db';
 import { formatMoney } from '@/modules/core/utils';
+import { listableCourses } from '@/modules/enrollments';
 import { sendList } from '@/modules/messaging';
 import type { BotStep } from '../../types';
 import { handOver, replyOf, saveAnswer, sendOptions, truncate, withPrefix } from '../shared';
 
-// ponytail: WhatsApp lists hold 10 rows; more than 10 active courses would need a second step.
-const activeCourses = () =>
-  db.course.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' }, take: 10 });
-
-/** Step 2: list of active courses. */
+/** Step 2: list of active courses with a batch that isn't closed or over. */
 export const courseStep: BotStep = {
   key: 'course',
   async ask(ctx, opts) {
-    const courses = await activeCourses();
+    const courses = await listableCourses();
     if (courses.length === 0) return handOver(ctx.lead);
     await sendList(
       ctx.lead.id,
@@ -23,7 +20,10 @@ export const courseStep: BotStep = {
         rows: courses.map((c) => ({
           id: c.id,
           title: truncate(c.name, 24),
-          description: truncate(`${formatMoney(c.feePaise)} · ${c.description}`, 72),
+          description: truncate(
+            `${c.waitlistOnly ? 'Waitlist only · ' : ''}${formatMoney(c.feePaise)} · ${c.description}`,
+            72,
+          ),
         })),
       },
       sendOptions(ctx, opts),
@@ -31,7 +31,7 @@ export const courseStep: BotStep = {
   },
   async handle({ lead }, msg) {
     const reply = replyOf(msg);
-    const course = (await activeCourses()).find(
+    const course = (await listableCourses()).find(
       (c) => c.id === msg.replyId || c.name.toLowerCase() === reply,
     );
     if (!course) {
@@ -39,6 +39,8 @@ export const courseStep: BotStep = {
     }
     await db.lead.update({ where: { id: lead.id }, data: { courseId: course.id } });
     await saveAnswer(lead.id, 'course', course.id, course.name);
+    // A batch picked earlier belongs to the old choice: keeping it could book the wrong course.
+    await db.answer.deleteMany({ where: { leadId: lead.id, questionKey: 'batch' } });
     return { result: 'next' };
   },
 };

@@ -109,6 +109,13 @@ enum Role {
   VIEWER
 }
 
+enum WaitlistOfferStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Course {
@@ -131,32 +138,35 @@ model Course {
 }
 
 model Batch {
-  id            String      @id @default(uuid()) @db.Uuid
-  courseId      String      @map("course_id") @db.Uuid
-  name          String
+  id                String      @id @default(uuid()) @db.Uuid
+  courseId          String      @map("course_id") @db.Uuid
+  name              String
   /// 1 = Mon … 7 = Sun
-  daysOfWeek    Int[]       @map("days_of_week")
+  daysOfWeek        Int[]       @map("days_of_week")
   /// "HH:mm" in IST
-  startTime     String      @map("start_time") @db.VarChar(5)
+  startTime         String      @map("start_time") @db.VarChar(5)
   /// "HH:mm" in IST
-  endTime       String      @map("end_time") @db.VarChar(5)
-  startDate     DateTime    @map("start_date") @db.Date
-  endDate       DateTime    @map("end_date") @db.Date
-  capacity      Int
-  seatsTaken    Int         @default(0) @map("seats_taken")
+  endTime           String      @map("end_time") @db.VarChar(5)
+  startDate         DateTime    @map("start_date") @db.Date
+  endDate           DateTime    @map("end_date") @db.Date
+  capacity          Int
+  seatsTaken        Int         @default(0) @map("seats_taken")
   /// Deprecated: the Zoom API is retired, nothing reads or writes this.
-  zoomMeetingId BigInt?     @map("zoom_meeting_id")
-  zoomHostUser  String?     @map("zoom_host_user")
+  zoomMeetingId     BigInt?     @map("zoom_meeting_id")
+  zoomHostUser      String?     @map("zoom_host_user")
   /// Pasted by staff. Sent when a trial starts.
-  trialLink     String?     @map("trial_link")
+  trialLink         String?     @map("trial_link")
   /// Pasted by staff. Sent once payment is confirmed.
-  paidLink      String?     @map("paid_link")
-  status        BatchStatus @default(OPEN)
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
+  paidLink          String?     @map("paid_link")
+  status            BatchStatus @default(OPEN)
+  /// Set once staff were told this batch has free seats for the waitlist but no trial link.
+  waitlistAlertedAt DateTime?   @map("waitlist_alerted_at")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
 
-  course      Course       @relation(fields: [courseId], references: [id])
-  enrollments Enrollment[]
+  course         Course          @relation(fields: [courseId], references: [id])
+  enrollments    Enrollment[]
+  waitlistOffers WaitlistOffer[]
 
   @@index([courseId, status])
   @@map("batches")
@@ -186,12 +196,13 @@ model Lead {
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
-  course      Course?      @relation(fields: [courseId], references: [id])
-  assignedTo  User?        @relation(fields: [assignedToId], references: [id])
-  events      LeadEvent[]
-  answers     Answer[]
-  enrollments Enrollment[]
-  messages    Message[]
+  course         Course?         @relation(fields: [courseId], references: [id])
+  assignedTo     User?           @relation(fields: [assignedToId], references: [id])
+  events         LeadEvent[]
+  answers        Answer[]
+  enrollments    Enrollment[]
+  messages       Message[]
+  waitlistOffers WaitlistOffer[]
 
   @@index([status])
   @@index([createdAt])
@@ -289,6 +300,29 @@ model Enrollment {
   @@unique([leadId, batchId])
   @@index([batchId, status])
   @@map("enrollments")
+}
+
+/// A seat held for a waitlisted lead until `expiresAt`. A lead has at most one PENDING offer: a
+/// partial unique index in the migration enforces it, since the schema can't express one.
+model WaitlistOffer {
+  id         String              @id @default(uuid()) @db.Uuid
+  leadId     String              @map("lead_id") @db.Uuid
+  batchId    String              @map("batch_id") @db.Uuid
+  status     WaitlistOfferStatus @default(PENDING)
+  /// "cron" | user id
+  offeredBy  String              @map("offered_by")
+  offeredAt  DateTime            @map("offered_at")
+  expiresAt  DateTime            @map("expires_at")
+  resolvedAt DateTime?           @map("resolved_at")
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+
+  lead  Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  batch Batch @relation(fields: [batchId], references: [id])
+
+  @@index([batchId, status])
+  @@index([leadId, offeredAt])
+  @@map("waitlist_offers")
 }
 
 model Payment {

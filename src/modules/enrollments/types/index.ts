@@ -17,11 +17,12 @@ export const enrollmentFiltersSchema = z.object({
 });
 export type EnrollmentFilters = z.infer<typeof enrollmentFiltersSchema>;
 
-/** A batch offered in assign / move dialogs. */
+/** A batch offered in assign / move / offer dialogs. */
 export type BatchOption = {
   id: string;
   name: string;
   courseId: string;
   courseName: string;
   seatsLeft: number;
+  hasTrialLink: boolean;
 };

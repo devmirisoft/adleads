@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { paymentLinksAreFake } from '@/lib/config';
 import { ADMIN_ONLY, CAN_ACT, requireUser } from '@/modules/auth';
 import {
   BatchActions,
@@ -69,7 +70,7 @@ export default async function BatchPage({ params, searchParams }: PageProps<'/ba
               today={today}
               batches={openBatches}
               canAct={CAN_ACT.includes(user.role)}
-              requestPayment={requestPaymentAction}
+              requestPayment={paymentLinksAreFake() ? undefined : requestPaymentAction}
               emptyHint="Nobody has booked this batch yet."
             />
           </SectionCard>

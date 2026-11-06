@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { ExternalLink } from 'lucide-react';
 import { realtimePublicConfig } from '@/lib/realtime/client';
+import { paymentLinksAreFake } from '@/lib/config';
 import { CAN_ACT, requireUser } from '@/modules/auth';
 import {
   Button,
@@ -12,7 +13,13 @@ import {
   SectionCard,
   StatusBadge,
 } from '@/modules/core/components';
-import { AssignBatchDialog, EnrollmentActions, listOpenBatches } from '@/modules/enrollments';
+import {
+  AssignBatchDialog,
+  currentOffer,
+  EnrollmentActions,
+  listOpenBatches,
+  OfferSeatDialog,
+} from '@/modules/enrollments';
 import {
   getLeadDetail,
   LeadStatusControl,
@@ -52,12 +59,13 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
   if (!lead) notFound();
 
   const canAct = CAN_ACT.includes(user.role);
-  const [chat, windowOpen, staff, openBatches, payable] = await Promise.all([
+  const [chat, windowOpen, staff, openBatches, payable, seatOffer] = await Promise.all([
     listMessages(id),
     isWindowOpen(lead),
     userNames(),
-    canAct ? listOpenBatches() : [],
+    canAct ? listOpenBatches(id) : [],
     canAct ? listPayableEnrollments() : [],
+    currentOffer(id),
   ]);
   const name = leadName(lead);
   const { messages } = chat;
@@ -80,6 +88,14 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
           canAct && (
             <>
               {(lead.needsHuman || unread) && <ResolveButton leadId={lead.id} />}
+              {lead.status === 'WAITLISTED' && (
+                <OfferSeatDialog
+                  leadId={lead.id}
+                  leadName={name}
+                  courseId={lead.courseId}
+                  batches={openBatches}
+                />
+              )}
               {canAssignBatch && (
                 <AssignBatchDialog
                   leadId={lead.id}
@@ -133,6 +149,18 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
                       : SOURCE_LABEL[lead.source],
                   },
                   { label: 'Course', value: lead.course?.name ?? '—' },
+                  ...(seatOffer
+                    ? [
+                        {
+                          label: 'Seat offer',
+                          value: (
+                            <span>
+                              {seatOffer.batch.name}, until <DateTime value={seatOffer.expiresAt} />
+                            </span>
+                          ),
+                        },
+                      ]
+                    : []),
                   { label: 'Assigned to', value: lead.assignedTo?.name ?? '—' },
                   { label: 'First message', value: <DateTime value={lead.createdAt} /> },
                   {
@@ -175,7 +203,7 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
                       batch: { id: e.batch.id, name: e.batch.name, courseId: e.batch.courseId },
                     }}
                     batches={openBatches}
-                    requestPayment={requestPaymentAction}
+                    requestPayment={paymentLinksAreFake() ? undefined : requestPaymentAction}
                   />
                 )
               }

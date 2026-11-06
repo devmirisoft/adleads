@@ -4,7 +4,7 @@ import { now } from '@/lib/clock';
 import { paymentLinksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { publishInboxChanged } from '@/lib/realtime/client';
-import { assignSeat, trialLinkAvailable } from '@/modules/enrollments';
+import { assignSeat, currentOffer, trialLinkAvailable } from '@/modules/enrollments';
 import { canTransition, transition, upsertLead } from '@/modules/leads';
 import {
   hasMessage,
@@ -16,7 +16,7 @@ import {
 } from '@/modules/messaging';
 import { getSetting } from '@/modules/settings';
 import type { AskOptions, BotStep, StepContext, StepKey } from '../types';
-import { handOver, isUuid, replyOf } from './shared';
+import { handOver, isUuid, noSeats, replyOf } from './shared';
 import { batchStep } from './steps/batch';
 import { confirmStep } from './steps/confirm';
 import { courseStep } from './steps/course';
@@ -184,11 +184,7 @@ async function finishScript(lead: Lead) {
   if (!(await canBook(batch.answerValue))) return handOverBooking(lead);
   const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
   if (result.result === 'waitlisted') {
-    await sendText(
-      lead.id,
-      `Sorry, ${batch.answerLabel} filled up just now. You're on the waitlist — we'll message you here as soon as a seat opens.`,
-      { sentBy: 'bot' },
-    );
+    await sendText(lead.id, `Sorry! ${noSeats(batch.answerLabel)}`, { sentBy: 'bot' });
   } else {
     await sendText(lead.id, 'Great, your seat is booked! Your class link is on its way.', {
       sentBy: 'bot',
@@ -198,22 +194,31 @@ async function finishScript(lead: Lead) {
 
 // ─── Other statuses ──────────────────────────────────────────────────────────
 
-/** A waitlisted lead replying "yes" / tapping "Book my seat" gets the seat if one is free. */
+/**
+ * A waitlisted lead replying "yes" / tapping "Book my seat" books the seat offered to them. Only an
+ * open offer can be booked, so a late or typed reply can't jump the queue or use an old batch answer.
+ */
 async function waitlisted(lead: Lead, msg: InboundMessage) {
   const wantsSeat = ['book_seat', 'yes', 'y', 'book'].includes(replyOf(msg));
   if (!wantsSeat) return handOver(lead);
 
-  const batch = await db.answer.findUnique({
-    where: { leadId_questionKey: { leadId: lead.id, questionKey: 'batch' } },
-  });
-  if (!isUuid(batch?.answerValue)) return handOver(lead);
-  if (!(await canBook(batch.answerValue))) return handOverBooking(lead);
-  const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
+  const offer = await currentOffer(lead.id);
+  if (!offer) {
+    await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
+    await sendText(
+      lead.id,
+      "Sorry, we don't have a seat held for you right now. Our team will follow up with you.",
+      { sentBy: 'bot' },
+    );
+    return;
+  }
+  if (!(await canBook(offer.batchId))) return handOverBooking(lead);
+  const result = await assignSeat(lead.id, offer.batchId, { actor: 'bot' });
   await sendText(
     lead.id,
     result.result === 'trial'
       ? 'Great, your seat is booked! Your class link is on its way.'
-      : `Sorry, ${batch.answerLabel} is still full. We'll message you as soon as a seat opens.`,
+      : `Sorry! ${noSeats(offer.batch.name)}`,
     { sentBy: 'bot' },
   );
 }

@@ -11,7 +11,11 @@ export {
 export { cancel } from './services/cancel';
 export { expire } from './services/expire';
 export { extendTrial, queueEnrollmentConfirmed, sendClassReminders } from './services/trial';
+export { offerSeat, runWaitlistOffers } from './services/waitlistOffers';
 export {
+  bookableBatches,
+  currentOffer,
+  listableCourses,
   listEnrollments,
   listOpenBatches,
   todayIst,
@@ -22,10 +26,12 @@ export {
   cancelEnrollmentAction,
   extendTrialAction,
   moveBatchAction,
+  offerSeatAction,
   queueNewLinkAction,
   resendTrialLinkAction,
 } from './services/actions';
 export { enrollmentFiltersSchema, type BatchOption, type EnrollmentFilters } from './types';
 export { AssignBatchDialog } from './components/AssignBatchDialog';
+export { OfferSeatDialog } from './components/OfferSeatDialog';
 export { EnrollmentActions, type EnrollmentRef } from './components/EnrollmentActions';
 export { EnrollmentFilterBar, EnrollmentTable } from './components/EnrollmentTable';

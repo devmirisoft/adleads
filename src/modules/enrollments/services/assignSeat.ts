@@ -1,5 +1,5 @@
 import 'server-only';
-import type { BatchStatus } from '@/generated/prisma/client';
+import type { BatchStatus, Prisma } from '@/generated/prisma/client';
 import { now } from '@/lib/clock';
 import { db, type Tx } from '@/lib/db';
 import { addTrialDays, istDate } from '@/modules/core/utils';
@@ -9,23 +9,46 @@ import { getSetting } from '@/modules/settings';
 
 // Everything that changes batches.seats_taken lives in this file, always under a row lock.
 
-type LockedBatch = {
+export type LockedBatch = {
   id: string;
   course_id: string;
+  name: string;
   capacity: number;
   seats_taken: number;
   status: BatchStatus;
+  end_date: Date;
+  trial_link: string | null;
+  waitlist_alerted_at: Date | null;
 };
 
-async function lockBatch(tx: Tx, batchId: string): Promise<LockedBatch> {
+export async function lockBatch(tx: Tx, batchId: string): Promise<LockedBatch> {
   const [batch] = await tx.$queryRaw<LockedBatch[]>`
-    SELECT id, course_id, capacity, seats_taken, status FROM batches
-    WHERE id = ${batchId}::uuid FOR UPDATE`;
+    SELECT id, course_id, name, capacity, seats_taken, status, end_date, trial_link, waitlist_alerted_at
+    FROM batches WHERE id = ${batchId}::uuid FOR UPDATE`;
   if (!batch) throw new Error(`Batch ${batchId} not found`);
   return batch;
 }
 
-const hasFreeSeat = (b: LockedBatch) => b.status !== 'CLOSED' && b.seats_taken < b.capacity;
+/** A lead the waitlist can still reach. */
+export const WAITING = { status: 'WAITLISTED', optedOutAt: null } satisfies Prisma.LeadWhereInput;
+
+/** An offer holding a seat right now. A lapsed one stops counting at once, before the cron marks it. */
+export const outstandingOffer = (at: Date) =>
+  ({
+    status: 'PENDING',
+    expiresAt: { gt: at },
+    lead: WAITING,
+  }) satisfies Prisma.WaitlistOfferWhereInput;
+
+export const heldSeats = (tx: Tx, batchId: string, at: Date) =>
+  tx.waitlistOffer.count({ where: { batchId, ...outstandingOffer(at) } });
+
+/** Not closed and not over. */
+export const isLive = (b: LockedBatch, today: Date) =>
+  b.status !== 'CLOSED' && b.end_date.getTime() >= today.getTime();
+
+const hasFreeSeat = (b: LockedBatch, today: Date, held: number) =>
+  isLive(b, today) && b.seats_taken + held < b.capacity;
 
 /** OPEN ↔ FULL follows the count; CLOSED stays CLOSED. */
 const statusFor = (b: LockedBatch, taken: number): BatchStatus =>
@@ -57,27 +80,44 @@ export type AssignResult = { result: 'trial'; enrollmentId: string } | { result:
 /**
  * Give a QUALIFIED/WAITLISTED lead a trial seat: lock the batch, check capacity, create the TRIAL
  * enrollment, take the seat, lead → TRIAL_ACTIVE, queue the trial link — one transaction.
- * No seat → lead WAITLISTED.
+ * Seats held by other leads' open offers aren't free. Closed, ended or no seat → lead WAITLISTED.
  */
 export async function assignSeat(
   leadId: string,
   batchId: string,
   { actor }: { actor: Actor },
 ): Promise<AssignResult> {
-  const today = istDate(await now());
+  const at = await now();
+  const today = istDate(at);
   return db.$transaction(async (tx) => {
     const batch = await lockBatch(tx, batchId);
     const lead = await tx.lead.findUniqueOrThrow({
       where: { id: leadId },
       select: { status: true },
     });
+    const myOffer = await tx.waitlistOffer.findFirst({
+      where: { leadId, batchId, ...outstandingOffer(at) },
+    });
 
-    if (!hasFreeSeat(batch)) {
+    // An offer is honoured even if capacity was cut below the seats on offer: first to book wins.
+    const held = myOffer ? 0 : await heldSeats(tx, batchId, at);
+    if (!hasFreeSeat(batch, today, held)) {
       if (lead.status !== 'WAITLISTED') {
-        await transition(leadId, 'WAITLISTED', { actor, note: 'Batch full' }, tx);
+        await transition(leadId, 'WAITLISTED', { actor, note: 'No seat available' }, tx);
       }
       return { result: 'waitlisted' };
     }
+
+    if (myOffer) {
+      await tx.waitlistOffer.update({
+        where: { id: myOffer.id },
+        data: { status: 'ACCEPTED', resolvedAt: at },
+      });
+    }
+    await tx.waitlistOffer.updateMany({
+      where: { leadId, status: 'PENDING' },
+      data: { status: 'CANCELLED', resolvedAt: at },
+    });
 
     const course = await tx.course.findUniqueOrThrow({ where: { id: batch.course_id } });
     const trialDays = course.trialDays ?? (await getSetting('default_trial_days', tx));
@@ -99,7 +139,13 @@ export async function assignSeat(
       },
     });
     await takeSeat(tx, batch);
-    await tx.lead.update({ where: { id: leadId }, data: { courseId: batch.course_id } });
+    await tx.lead.update({
+      where: { id: leadId },
+      data: {
+        courseId: batch.course_id,
+        ...(lead.status === 'WAITLISTED' && { needsHuman: false }),
+      },
+    });
     await transition(leadId, 'TRIAL_ACTIVE', { actor }, tx);
     await enqueue('sendTrialLink', { enrollmentId: enrollment.id, leadId }, { tx });
     return { result: 'trial', enrollmentId: enrollment.id };
@@ -116,6 +162,7 @@ export async function moveBatch(enrollmentId: string, newBatchId: string) {
     throw new Error('Only trial or paid enrollments can change batch.');
   }
   if (e.batchId === newBatchId) return;
+  const at = await now();
 
   await db.$transaction(async (tx) => {
     // Lock in a fixed order so two opposite moves can't deadlock.
@@ -125,7 +172,9 @@ export async function moveBatch(enrollmentId: string, newBatchId: string) {
       [b, await lockBatch(tx, b)],
     ]);
     const target = locked.get(newBatchId)!;
-    if (!hasFreeSeat(target)) throw new Error('That batch has no free seats.');
+    if (!hasFreeSeat(target, istDate(at), await heldSeats(tx, newBatchId, at))) {
+      throw new Error('That batch has no free seats, or has closed or ended.');
+    }
     await takeSeat(tx, target);
     await releaseSeat(tx, locked.get(e.batchId)!);
     await tx.enrollment.update({

@@ -31,6 +31,10 @@ export async function saveAnswer(
   });
 }
 
+/** What a lead hears when there's nothing to book. Promises only what staff will actually do. */
+export const noSeats = (where: string) =>
+  `There are currently no available seats in ${where}. Our team will follow up with you.`;
+
 /** Hand the chat to staff: flag once and tell the lead (only when the flag flips, to avoid spam). */
 export async function handOver(lead: { id: string; needsHuman: boolean }) {
   if (lead.needsHuman) return;

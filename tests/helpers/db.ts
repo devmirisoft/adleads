@@ -5,6 +5,7 @@ import type { LeadStatus } from '@/modules/leads';
 export const hasTestDb = !!process.env.TEST_DATABASE_URL;
 
 const TABLES = [
+  'waitlist_offers',
   'lead_events',
   'answers',
   'messages',

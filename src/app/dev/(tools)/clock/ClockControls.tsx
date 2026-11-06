@@ -10,8 +10,8 @@ const CRONS: { name: CronName; label: string; schedule: string }[] = [
   { name: 'jobs', label: 'Run jobs', schedule: 'Every minute' },
   {
     name: 'nudges',
-    label: 'Run nudges',
-    schedule: 'Every 30 min: re-ask at 3 h / 22 h, drop at 24 h',
+    label: 'Run nudges and offers',
+    schedule: 'Every 30 min: re-ask at 3 h / 22 h, drop at 24 h, offer free seats to the waitlist',
   },
   {
     name: 'trials',
