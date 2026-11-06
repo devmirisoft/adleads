@@ -4,7 +4,8 @@ import { formatMoney } from '@/modules/core/utils';
 import { listableCourses } from '@/modules/enrollments';
 import { sendList } from '@/modules/messaging';
 import type { BotStep } from '../../types';
-import { handOver, replyOf, saveAnswer, sendOptions, truncate, withPrefix } from '../shared';
+import { pickOption } from '../../utils';
+import { handOver, saveAnswer, sendOptions, truncate, withPrefix } from '../shared';
 
 /** Step 2: list of active courses with a batch that isn't closed or over. */
 export const courseStep: BotStep = {
@@ -30,10 +31,7 @@ export const courseStep: BotStep = {
     );
   },
   async handle({ lead }, msg) {
-    const reply = replyOf(msg);
-    const course = (await listableCourses()).find(
-      (c) => c.id === msg.replyId || c.name.toLowerCase() === reply,
-    );
+    const course = pickOption(await listableCourses(), msg);
     if (!course) {
       return { result: 'retry', reason: 'Please tap "Choose course" and pick one from the list.' };
     }

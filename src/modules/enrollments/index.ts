@@ -11,7 +11,7 @@ export {
 export { cancel } from './services/cancel';
 export { expire } from './services/expire';
 export { extendTrial, queueEnrollmentConfirmed, sendClassReminders } from './services/trial';
-export { offerSeat, runWaitlistOffers } from './services/waitlistOffers';
+export { leaveWaitlist, offerSeat, runWaitlistOffers } from './services/waitlistOffers';
 export {
   bookableBatches,
   currentOffer,

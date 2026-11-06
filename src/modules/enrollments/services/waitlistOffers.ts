@@ -4,7 +4,7 @@ import { db, type Tx } from '@/lib/db';
 import { publishInboxChanged } from '@/lib/realtime/client';
 import { istDate } from '@/modules/core/utils';
 import { enqueue } from '@/modules/jobs';
-import type { Actor } from '@/modules/leads';
+import { transition, type Actor } from '@/modules/leads';
 import { heldSeats, isLive, lockBatch, WAITING, type LockedBatch } from './assignSeat';
 import { firstName } from './sendTrialLink';
 
@@ -66,6 +66,23 @@ export async function offerSeat(leadId: string, batchId: string, { actor }: { ac
       throw new Error('That batch has no free seats right now. Pick another one.');
     }
     await createOffer(tx, lead, batch, at, actor);
+  });
+}
+
+/**
+ * A waitlisted lead wants to choose again: back to ASKING. A seat held for them goes back to the
+ * queue, or it could book the old choice if they're waitlisted again.
+ */
+export async function leaveWaitlist(leadId: string, opts: { actor: Actor; note?: string }) {
+  const at = await now();
+  await db.$transaction(async (tx) => {
+    await transition(leadId, 'ASKING', opts, tx);
+    await tx.waitlistOffer.updateMany({
+      where: { leadId, status: 'PENDING' },
+      data: { status: 'CANCELLED', resolvedAt: at },
+    });
+    // Same as assignSeat: the waitlist follow-up staff were flagged for is over.
+    await tx.lead.update({ where: { id: leadId }, data: { needsHuman: false } });
   });
 }
 

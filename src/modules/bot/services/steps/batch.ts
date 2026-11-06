@@ -5,7 +5,8 @@ import { bookableBatches } from '@/modules/enrollments';
 import { transition } from '@/modules/leads';
 import { sendList, sendText } from '@/modules/messaging';
 import type { BotStep } from '../../types';
-import { isUuid, noSeats, replyOf, saveAnswer, sendOptions, truncate, withPrefix } from '../shared';
+import { pickOption } from '../../utils';
+import { isUuid, noSeats, saveAnswer, sendOptions, truncate, withPrefix } from '../shared';
 
 const seatsLabel = (n: number) => `${n} seat${n === 1 ? '' : 's'} left`;
 
@@ -49,9 +50,7 @@ export const batchStep: BotStep = {
     );
   },
   async handle({ lead }, msg) {
-    const batches = await bookableBatches(lead.courseId!);
-    const reply = replyOf(msg);
-    const batch = batches.find((b) => b.id === msg.replyId || b.name.toLowerCase() === reply);
+    const batch = pickOption(await bookableBatches(lead.courseId!), msg);
     if (batch) {
       await saveAnswer(lead.id, 'batch', batch.id, batch.name);
       return { result: 'next' };
@@ -62,7 +61,7 @@ export const batchStep: BotStep = {
       result: 'retry',
       reason: filled
         ? 'Sorry, that batch just filled up. Please pick another one.'
-        : 'Please tap "Choose batch" and pick one from the list.',
+        : 'Please tap "Choose batch" and pick one from the list, or reply CHANGE to pick another course.',
     };
   },
 };

@@ -177,21 +177,70 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     expect((await lead()).needsHuman).toBe(true);
   });
 
-  it('invalid name: hint first, then hands over to a human', async () => {
+  it('invalid answers never stop the script: HELP hint from the 2nd miss, staff flagged quietly from the 3rd', async () => {
     await deliver(fixture('text_with_referral'));
     await say({ kind: 'text', text: 'x' });
     const hint = await lastOut();
     expect(hint.text).toMatch(/^Please reply with just your full name/);
+    expect(hint.text).not.toContain('HELP');
     expect(hint.retryStep).toBe(1);
-    expect((await lead()).needsHuman).toBe(false);
 
-    await say({ kind: 'text', text: '12345' });
-    expect((await lead()).needsHuman).toBe(true);
-    expect((await lastOut()).text).toContain('Someone from our team will reply');
+    for (const [text, flagged] of [
+      ['12345', false],
+      ['???', true],
+      ['Hi', true],
+    ] as const) {
+      await say({ kind: 'text', text });
+      const again = await lastOut();
+      expect(again.text).toMatch(/^Please reply with just your full name/);
+      expect(again.text).toContain('Reply HELP');
+      expect((await lead()).needsHuman).toBe(flagged);
+    }
+    // Flagged without telling the lead: every reply was a re-ask.
+    const outs = await db.message.findMany({
+      where: { lead: { phoneE164: PHONE }, direction: 'OUT' },
+    });
+    expect(JSON.stringify(outs)).not.toContain('Someone from our team');
 
-    // A valid name still continues the script.
     await say({ kind: 'text', text: 'Rahul Sharma' });
     expect((await lastOut()).button).toBe('Choose course');
+  });
+
+  it('typed answers work: course and batch by name or number, "ok" to confirm', async () => {
+    await startAndName();
+    await say({ kind: 'text', text: 'spoken english please' });
+    expect((await lastOut()).button).toBe('Choose batch');
+    await say({ kind: 'text', text: '1' });
+    expect((await lastOut()).buttons?.map((b) => b.id)).toEqual(['confirm', 'change']);
+    await say({ kind: 'text', text: 'ok' });
+    expect((await lead()).status).toBe('TRIAL_ACTIVE');
+  });
+
+  it('CHANGE BATCH goes back to the batch list, keeping the course', async () => {
+    await startAndName();
+    await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
+    await say({ kind: 'list', id: ids.batch.id, title: 'Evening Mon–Fri' });
+    await say({ kind: 'text', text: 'change batch' });
+    const out = await lastOut();
+    expect(out.button).toBe('Choose batch');
+    expect(out.text).toMatch(/^No problem, let’s change that/);
+  });
+
+  it('a flagged lead still gets an answer, but the bot never talks over staff', async () => {
+    await startAndName();
+    const { id } = await lead();
+    await db.lead.update({ where: { id }, data: { needsHuman: true } }); // flagged for another reason
+    await say({ kind: 'text', text: 'HELP' });
+    expect((await lastOut()).text).toContain('Someone from our team will reply');
+
+    // A burst of messages gets one reply.
+    const n = await outCount();
+    await say({ kind: 'text', text: 'help' });
+    expect(await outCount()).toBe(n);
+
+    await sendText(id, 'Hi Rahul, Priya here.', { sentBy: 'staff-user-id' });
+    await say({ kind: 'text', text: 'HELP' });
+    expect((await lastOut()).text).toBe('Hi Rahul, Priya here.');
   });
 
   it('Change at confirm loops back to the course list', async () => {
@@ -315,6 +364,45 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
       });
       await startAndName();
       expect(JSON.stringify(await lastOut())).toContain('Waitlist only');
+    });
+
+    it('a waitlisted lead keeps getting answers and can CHANGE to a course with seats', async () => {
+      await fill(ids.batch.id, 5);
+      const python = await otherCourse();
+      await startAndName();
+      await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
+      const { id } = await lead();
+      expect(await lead()).toMatchObject({ status: 'WAITLISTED', needsHuman: true });
+      const offer = await db.waitlistOffer.create({
+        data: {
+          leadId: id,
+          batchId: ids.batch.id,
+          offeredBy: 'test',
+          offeredAt: new Date(),
+          expiresAt: new Date('2099-01-01'),
+        },
+      });
+
+      // Already flagged, yet still answered — once per burst.
+      await say({ kind: 'text', text: 'hello?' });
+      expect((await lastOut()).text).toContain("You're on our waitlist");
+      expect((await lastOut()).text).toContain('Reply CHANGE');
+      const n = await outCount();
+      await say({ kind: 'text', text: 'ok' });
+      expect(await outCount()).toBe(n);
+
+      await say({ kind: 'text', text: 'Change' });
+      expect(await lead()).toMatchObject({ status: 'ASKING', needsHuman: false, currentStep: 2 });
+      expect((await lastOut()).button).toBe('Choose course');
+      // The old seat offer can't book Spoken English later.
+      expect(await db.waitlistOffer.findUniqueOrThrow({ where: { id: offer.id } })).toMatchObject({
+        status: 'CANCELLED',
+      });
+
+      await say({ kind: 'text', text: 'python' });
+      await say({ kind: 'text', text: 'Python Weekend' });
+      await say({ kind: 'button', id: 'confirm', title: 'Confirm' });
+      expect(await lead()).toMatchObject({ status: 'TRIAL_ACTIVE', courseId: python.course.id });
     });
 
     it('with nothing to list at all, the lead goes to staff', async () => {

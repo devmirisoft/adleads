@@ -4,12 +4,16 @@ import { formatDays, formatMoney, formatTime } from '@/modules/core/utils';
 import { sendButtons } from '@/modules/messaging';
 import { getSetting } from '@/modules/settings';
 import type { BotStep } from '../../types';
-import { isUuid, replyOf, sendOptions, withPrefix } from '../shared';
+import { replyOf } from '../../utils';
+import { isUuid, sendOptions, withPrefix } from '../shared';
 
 const DEFAULT_BUTTONS = [
   { id: 'confirm', title: 'Confirm' },
   { id: 'change', title: 'Change' },
 ];
+// Typed replies as well as the button ids.
+const YES = ['confirm', 'yes', 'y', 'ok', 'okay', 'sure', 'book', 'done', 'haan', 'ha'];
+const CHANGE = ['change', 'no', 'edit'];
 
 /** Step 4: summary + Confirm / Change. Confirm → engine books the seat; Change → back to course. */
 export const confirmStep: BotStep = {
@@ -47,8 +51,8 @@ export const confirmStep: BotStep = {
   },
   async handle(_ctx, msg) {
     const reply = replyOf(msg);
-    if (reply === 'confirm' || reply === 'yes') return { result: 'next' };
-    if (reply === 'change') return { result: 'goto', step: 'course' };
+    if (YES.includes(reply)) return { result: 'next' };
+    if (CHANGE.includes(reply)) return { result: 'goto', step: 'course' };
     return {
       result: 'retry',
       reason: 'Please tap Confirm to book your free trial, or Change to pick again.',
