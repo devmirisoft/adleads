@@ -63,7 +63,7 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
     listMessages(id),
     isWindowOpen(lead),
     userNames(),
-    canAct ? listOpenBatches(id) : [],
+    canAct ? listOpenBatches() : [],
     canAct ? listPayableEnrollments() : [],
     currentOffer(id),
   ]);

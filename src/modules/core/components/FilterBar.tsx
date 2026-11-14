@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryState } from '../hooks/useQueryState';
 
@@ -134,5 +135,37 @@ export function FilterSelect({ param, label, options, allLabel = 'All' }: Filter
         </SelectContent>
       </Select>
     </div>
+  );
+}
+
+/** Tabs bound to one URL param, above FilterBar: one tab per value plus "All" (no param). */
+export function FilterTabs({
+  param,
+  label,
+  options,
+  allLabel = 'All',
+}: {
+  param: string;
+  /** Accessible name for the tab list. */
+  label: string;
+  options: { value: string; label: string }[];
+  allLabel?: string;
+}) {
+  const [value, setValue] = useQueryState(param);
+  return (
+    <Tabs
+      value={value || ALL}
+      onValueChange={(v) => setValue(v === ALL ? null : v)}
+      className="mb-4"
+    >
+      <TabsList aria-label={label} className="max-w-full justify-start overflow-x-auto">
+        <TabsTrigger value={ALL}>{allLabel}</TabsTrigger>
+        {options.map((o) => (
+          <TabsTrigger key={o.value} value={o.value}>
+            {o.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   );
 }

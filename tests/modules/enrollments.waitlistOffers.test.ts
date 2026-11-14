@@ -2,11 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
 import { runJobsNow } from '@/app/_jobs/handlers';
 import { setDevNowOffsetDays } from '@/lib/clock';
-import { closeBatch, createBatch, updateBatch } from '@/modules/batches';
+import { closeBatch, createBatch } from '@/modules/batches';
 import {
   assignSeat,
   bookableBatches,
-  cancel,
   currentOffer,
   expire,
   listableCourses,
@@ -19,6 +18,9 @@ import { recordWebhook } from '@/modules/jobs';
 import { countInbox } from '@/modules/leads';
 import { buildMetaPayload, metaEventKey, type SimulatedInbound } from '@/modules/messaging';
 import { db, hasTestDb, makeLead, resetDb, seedBasics, TRIAL_LINK } from '../helpers/db';
+
+// Seats are unlimited: an offer never rations anything. Leads only end up waitlisted when the
+// batch they picked closed or ended, and the sweep then offers them any open batch on their course.
 
 const say = async (phoneE164: string, message: SimulatedInbound) => {
   const payload = buildMetaPayload({
@@ -58,7 +60,7 @@ async function waiters(courseId: string, count: number) {
   return leads;
 }
 
-/** A trial holding one seat, for tests that need the batch partly full. */
+/** A trial taking one seat. */
 async function trialIn(batchId: string) {
   const lead = await makeLead('QUALIFIED');
   const res = await assignSeat(lead.id, batchId, { actor: 'test' });
@@ -66,7 +68,22 @@ async function trialIn(batchId: string) {
   return { lead, enrollmentId: res.enrollmentId };
 }
 
-const batchInput = (courseId: string, capacity: number, host = 'host@zoom.example') => ({
+/** A second open batch on the course, earlier in the day than seedBasics' 19:00 one. */
+const morningBatch = (courseId: string) =>
+  db.batch.create({
+    data: {
+      courseId,
+      name: 'Morning',
+      daysOfWeek: [1],
+      startTime: '08:00',
+      endTime: '09:00',
+      startDate: new Date('2026-01-01'),
+      endDate: new Date('2099-12-31'),
+      trialLink: TRIAL_LINK,
+    },
+  });
+
+const batchInput = (courseId: string, host = 'host@zoom.example') => ({
   courseId,
   name: 'Evening Mon–Fri',
   daysOfWeek: [1, 2, 3, 4, 5],
@@ -74,7 +91,6 @@ const batchInput = (courseId: string, capacity: number, host = 'host@zoom.exampl
   endTime: '20:00',
   startDate: '2026-01-01',
   endDate: '2099-12-31',
-  capacity,
   zoomHostUser: host,
   trialLink: TRIAL_LINK,
   paidLink: '',
@@ -83,46 +99,24 @@ const batchInput = (courseId: string, capacity: number, host = 'host@zoom.exampl
 describe.skipIf(!hasTestDb)('waitlist offers', () => {
   beforeEach(resetDb);
 
-  describe('multiple available seats', () => {
-    it('offers one lead per free seat, oldest first, and a re-run changes nothing', async () => {
-      const { course, batch } = await seedBasics({ capacity: 3 });
+  describe('the sweep', () => {
+    it('offers every waitlisted lead on the course at once, and a re-run changes nothing', async () => {
+      const { course, batch } = await seedBasics();
       const leads = await waiters(course.id, 4);
+      const ids = leads.map((l) => l.id).sort();
 
-      expect(await runWaitlistOffers()).toMatchObject({ offered: 3, failed: [] });
+      expect(await runWaitlistOffers()).toMatchObject({ offered: 4, failed: [] });
 
-      expect((await pending()).map((o) => o.leadId).sort()).toEqual(
-        leads
-          .slice(0, 3)
-          .map((l) => l.id)
-          .sort(),
-      );
+      expect((await pending()).map((o) => o.leadId).sort()).toEqual(ids);
       expect((await pending()).every((o) => o.batchId === batch.id)).toBe(true);
-      expect((await offerJobs()).map((j) => j.leadId).sort()).toEqual(
-        leads
-          .slice(0, 3)
-          .map((l) => l.id)
-          .sort(),
-      );
+      expect((await offerJobs()).map((j) => j.leadId).sort()).toEqual(ids);
 
       expect(await runWaitlistOffers()).toMatchObject({ offered: 0 });
-      expect(await offerJobs()).toHaveLength(3);
+      expect(await offerJobs()).toHaveLength(4);
     });
 
-    it('takes seats already filled and already on offer off the count', async () => {
-      const { course, batch } = await seedBasics({ capacity: 3 });
-      await trialIn(batch.id);
-      const [a, b] = await waiters(course.id, 2);
-      await offerSeat(a.id, batch.id, { actor: 'staff' });
-      const [c] = await waiters(course.id, 1);
-
-      expect(await runWaitlistOffers()).toMatchObject({ offered: 1 });
-
-      expect((await pending()).map((o) => o.leadId).sort()).toEqual([a.id, b.id].sort());
-      expect(await db.waitlistOffer.count({ where: { leadId: c.id } })).toBe(0);
-    });
-
-    it('every lead holding an offer can book their seat', async () => {
-      const { course, batch } = await seedBasics({ capacity: 2 });
+    it('every lead holding an offer can book it', async () => {
+      const { course, batch } = await seedBasics();
       const [a, b] = await waiters(course.id, 2);
       await runWaitlistOffers();
 
@@ -133,104 +127,60 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
         expect((await leadRow(lead.id)).status).toBe('TRIAL_ACTIVE');
         expect(await offerStatus(lead.id)).toBe('ACCEPTED');
       }
-      expect(await batchRow(batch.id)).toMatchObject({ seatsTaken: 2, status: 'FULL' });
+      expect(await batchRow(batch.id)).toMatchObject({ seatsTaken: 2, status: 'OPEN' });
+    });
+
+    it('with two open batches, each lead gets one offer: the earliest batch', async () => {
+      const { course } = await seedBasics();
+      const morning = await morningBatch(course.id);
+      const [lead] = await waiters(course.id, 1);
+
+      expect(await runWaitlistOffers()).toMatchObject({ offered: 1, failed: [] });
+      expect(await pending()).toMatchObject([{ leadId: lead.id, batchId: morning.id }]);
     });
   });
 
-  describe('a held seat', () => {
-    it('is free to nobody else: bot list, staff picker, course label and booking agree', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
+  describe('an open offer', () => {
+    it('takes nothing from anyone else: bot list, staff picker and booking all still work', async () => {
+      const { course, batch } = await seedBasics();
+      await waiters(course.id, 1);
+      await runWaitlistOffers();
+
+      expect((await bookableBatches(course.id)).map((b) => b.id)).toEqual([batch.id]);
+      expect((await listableCourses()).map((c) => c.id)).toEqual([course.id]);
+      expect((await listOpenBatches()).map((b) => b.id)).toEqual([batch.id]);
+      const stranger = await makeLead('QUALIFIED');
+      expect((await assignSeat(stranger.id, batch.id, { actor: 'test' })).result).toBe('trial');
+    });
+
+    it('is cancelled once the lead opts out', async () => {
+      const { course } = await seedBasics();
       const [holder] = await waiters(course.id, 1);
       await runWaitlistOffers();
 
-      expect(await bookableBatches(course.id)).toEqual([]);
-      expect((await listableCourses())[0]).toMatchObject({ id: course.id, waitlistOnly: true });
-      expect(await listOpenBatches()).toEqual([]);
-      expect((await listOpenBatches(holder.id)).map((b) => b.id)).toEqual([batch.id]);
-
-      const stranger = await makeLead('QUALIFIED');
-      expect((await assignSeat(stranger.id, batch.id, { actor: 'test' })).result).toBe(
-        'waitlisted',
-      );
-      expect((await leadRow(stranger.id)).status).toBe('WAITLISTED');
-      expect((await batchRow(batch.id)).seatsTaken).toBe(0);
-    });
-
-    it('cannot be taken by moving another enrollment into the batch', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      await waiters(course.id, 1);
-      await runWaitlistOffers();
-      const other = await db.batch.create({
-        data: {
-          courseId: course.id,
-          name: 'Morning',
-          daysOfWeek: [1],
-          startTime: '08:00',
-          endTime: '09:00',
-          startDate: new Date('2026-01-01'),
-          endDate: new Date('2099-12-31'),
-          capacity: 1,
-          trialLink: TRIAL_LINK,
-        },
-      });
-      const { enrollmentId } = await trialIn(other.id);
-
-      await expect(moveBatch(enrollmentId, batch.id)).rejects.toThrow('no free seats');
-    });
-
-    it('is released as soon as the lead opts out', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      const [holder, next] = await waiters(course.id, 2);
-      await runWaitlistOffers();
-      expect(await bookableBatches(course.id)).toEqual([]);
-
       await say(holder.phoneE164, { kind: 'text', text: 'STOP' });
 
-      expect((await bookableBatches(course.id)).map((b) => b.id)).toEqual([batch.id]);
-      expect(await runWaitlistOffers()).toMatchObject({ cancelled: 1, offered: 1 });
+      expect(await currentOffer(holder.id)).toBeNull();
+      expect(await runWaitlistOffers()).toMatchObject({ cancelled: 1, offered: 0 });
       expect(await offerStatus(holder.id)).toBe('CANCELLED');
-      expect((await pending()).map((o) => o.leadId)).toEqual([next.id]);
     });
   });
 
-  describe('rotation', () => {
-    it('goes through never-offered leads first, then back to the longest since an offer', async () => {
-      const { course } = await seedBasics({ capacity: 1 });
-      const [a, b, c] = await waiters(course.id, 3);
-      const holder = async () => (await pending()).map((o) => o.leadId);
-
+  describe('repeat offers', () => {
+    it('an offer lapses after 24 hours and the lead gets a fresh one', async () => {
+      const { course } = await seedBasics();
+      const [a, b] = await waiters(course.id, 2);
       await runWaitlistOffers();
-      expect(await holder()).toEqual([a.id]);
 
       await setDevNowOffsetDays(1);
-      expect(await runWaitlistOffers()).toMatchObject({ expired: 1, offered: 1 });
-      expect(await holder()).toEqual([b.id]);
-      expect(await offerStatus(a.id)).toBe('EXPIRED');
 
-      await setDevNowOffsetDays(2);
-      await runWaitlistOffers();
-      expect(await holder()).toEqual([c.id]);
-
-      await setDevNowOffsetDays(3);
-      await runWaitlistOffers();
-      expect(await holder()).toEqual([a.id]);
+      expect(await runWaitlistOffers()).toMatchObject({ expired: 2, offered: 2 });
+      expect(await db.waitlistOffer.count({ where: { status: 'EXPIRED' } })).toBe(2);
+      expect((await pending()).map((o) => o.leadId).sort()).toEqual([a.id, b.id].sort());
     });
 
-    it('a new lead goes ahead of one who already had an offer', async () => {
-      const { course } = await seedBasics({ capacity: 1 });
-      const [old] = await waiters(course.id, 1);
-      await runWaitlistOffers();
-      const [fresh] = await waiters(course.id, 1);
-
-      await setDevNowOffsetDays(1);
-      await runWaitlistOffers();
-
-      expect((await pending()).map((o) => o.leadId)).toEqual([fresh.id]);
-      expect(await offerStatus(old.id)).toBe('EXPIRED');
-    });
-
-    it('never offers one lead twice within 24 hours, even with seats free', async () => {
-      const { course } = await seedBasics({ capacity: 5 });
+    it('never offers one lead twice within 24 hours', async () => {
+      const { course } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await runWaitlistOffers();
       await db.waitlistOffer.updateMany({ data: { status: 'CANCELLED' } });
@@ -244,20 +194,19 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
   });
 
   describe('expired offers', () => {
-    it('stop holding the seat at once, before the sweep marks them', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
+    it('stop working at once, before the sweep marks them', async () => {
+      const { course } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await runWaitlistOffers();
-      expect(await bookableBatches(course.id)).toEqual([]);
+      expect(await currentOffer(lead.id)).not.toBeNull();
 
       await setDevNowOffsetDays(1);
 
-      expect((await bookableBatches(course.id)).map((b) => b.id)).toEqual([batch.id]);
       expect(await currentOffer(lead.id)).toBeNull();
     });
 
     it('a late tap books nothing, flags staff and tells the lead plainly', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await runWaitlistOffers();
       await db.lead.update({ where: { id: lead.id }, data: { needsHuman: false } });
@@ -272,7 +221,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     });
 
     it('a waitlisted lead with no offer cannot book by typing yes', async () => {
-      const { course, batch } = await seedBasics({ capacity: 3 });
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await db.answer.create({
         data: {
@@ -298,7 +247,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     ] as const;
 
     it.each(cases)('a batch that is %s is never offered', async (_name, change) => {
-      const { course, batch } = await seedBasics({ capacity: 5 });
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await db.batch.update({ where: { id: batch.id }, data: change });
 
@@ -312,7 +261,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     it.each(cases)(
       'a %s batch cannot be booked, even with an open offer',
       async (_name, change) => {
-        const { course, batch } = await seedBasics({ capacity: 5 });
+        const { course, batch } = await seedBasics();
         const [lead] = await waiters(course.id, 1);
         await runWaitlistOffers();
         await db.batch.update({ where: { id: batch.id }, data: change });
@@ -326,15 +275,23 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     );
 
     it.each(cases)('a new lead is refused a batch that is %s', async (_name, change) => {
-      const { batch } = await seedBasics({ capacity: 5 });
+      const { batch } = await seedBasics();
       await db.batch.update({ where: { id: batch.id }, data: change });
       const lead = await makeLead('QUALIFIED');
 
       expect((await assignSeat(lead.id, batch.id, { actor: 'test' })).result).toBe('waitlisted');
     });
 
+    it.each(cases)('nobody can be moved into a batch that is %s', async (_name, change) => {
+      const { course, batch } = await seedBasics();
+      const { enrollmentId } = await trialIn((await morningBatch(course.id)).id);
+      await db.batch.update({ where: { id: batch.id }, data: change });
+
+      await expect(moveBatch(enrollmentId, batch.id)).rejects.toThrow('closed or ended');
+    });
+
     it('closing a batch ends its open offers on the next sweep', async () => {
-      const { course, batch } = await seedBasics({ capacity: 5 });
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await runWaitlistOffers();
 
@@ -344,8 +301,8 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
       expect(await offerStatus(lead.id)).toBe('CANCELLED');
     });
 
-    it('a trial expiring in a closed batch does not offer its seat', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
+    it('a trial expiring in a closed batch frees its seat and offers nothing', async () => {
+      const { course, batch } = await seedBasics();
       const { enrollmentId } = await trialIn(batch.id);
       await waiters(course.id, 1);
       await closeBatch(batch.id);
@@ -360,7 +317,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
 
   describe('a batch with no trial link', () => {
     it('alerts staff once instead of sending an unusable offer, then offers when it gets one', async () => {
-      const { course, batch } = await seedBasics({ capacity: 2, links: false });
+      const { course, batch } = await seedBasics({ links: false });
       const [lead] = await waiters(course.id, 1);
 
       expect(await runWaitlistOffers()).toMatchObject({ offered: 0, flagged: 1 });
@@ -381,7 +338,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     });
 
     it('cannot be offered by hand', async () => {
-      const { course, batch } = await seedBasics({ capacity: 2, links: false });
+      const { course, batch } = await seedBasics({ links: false });
       const [lead] = await waiters(course.id, 1);
 
       await expect(offerSeat(lead.id, batch.id, { actor: 'staff' })).rejects.toThrow(
@@ -391,33 +348,9 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     });
   });
 
-  describe('every way a seat appears', () => {
-    it('a cancellation', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      const { enrollmentId } = await trialIn(batch.id);
-      const [lead] = await waiters(course.id, 1);
-      expect(await runWaitlistOffers()).toMatchObject({ offered: 0 });
-
-      await cancel(enrollmentId, 'staff', { actor: 'test' });
-
-      expect(await runWaitlistOffers()).toMatchObject({ offered: 1 });
-      expect((await pending())[0].leadId).toBe(lead.id);
-    });
-
-    it('a capacity increase', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      await trialIn(batch.id);
-      await waiters(course.id, 3);
-      expect(await runWaitlistOffers()).toMatchObject({ offered: 0 });
-
-      await updateBatch(batch.id, batchInput(course.id, 3));
-
-      expect(await runWaitlistOffers()).toMatchObject({ offered: 2 });
-    });
-
-    it('a new batch, reaching a lead whose old batch answer is a different batch', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      await trialIn(batch.id);
+  describe('what reaches a waitlisted lead', () => {
+    it('a new batch, after the one they chose closed', async () => {
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await db.answer.create({
         data: {
@@ -427,9 +360,11 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
           answerLabel: batch.name,
         },
       });
+      await closeBatch(batch.id);
+      expect(await runWaitlistOffers()).toMatchObject({ offered: 0 });
 
       const added = await createBatch({
-        ...batchInput(course.id, 2, 'other@zoom.example'),
+        ...batchInput(course.id, 'other@zoom.example'),
         name: 'New evening',
       });
 
@@ -437,8 +372,8 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
       expect(await pending()).toMatchObject([{ leadId: lead.id, batchId: added.id }]);
     });
 
-    it('nothing is offered on a course that was switched off', async () => {
-      const { course } = await seedBasics({ capacity: 1 });
+    it('nothing, on a course that was switched off', async () => {
+      const { course } = await seedBasics();
       await waiters(course.id, 1);
       await db.course.update({ where: { id: course.id }, data: { isActive: false } });
 
@@ -448,21 +383,21 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
 
   describe('needsHuman', () => {
     it('is set whichever way a lead becomes waitlisted, and cleared when they book', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      await trialIn(batch.id);
+      const { course, batch } = await seedBasics();
       const lead = await makeLead('QUALIFIED', { courseId: course.id });
+      await closeBatch(batch.id);
 
       await assignSeat(lead.id, batch.id, { actor: 'test' });
       expect(await leadRow(lead.id)).toMatchObject({ status: 'WAITLISTED', needsHuman: true });
 
-      await db.batch.update({ where: { id: batch.id }, data: { capacity: 2, status: 'OPEN' } });
+      await db.batch.update({ where: { id: batch.id }, data: { status: 'OPEN' } });
       await runWaitlistOffers();
       await say(lead.phoneE164, BOOK);
       expect(await leadRow(lead.id)).toMatchObject({ status: 'TRIAL_ACTIVE', needsHuman: false });
     });
 
     it('is cleared when staff assign a waitlisted lead a seat directly', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
+      const { course, batch } = await seedBasics();
       const lead = await makeLead('WAITLISTED', { courseId: course.id });
       await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
 
@@ -472,7 +407,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     });
 
     it('stays set for a lead who asked for help before booking through the bot', async () => {
-      const { batch } = await seedBasics({ capacity: 1 });
+      const { batch } = await seedBasics();
       const lead = await makeLead('QUALIFIED');
       await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
 
@@ -484,7 +419,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
 
   describe('offering by hand', () => {
     it('works with no batch answer, and the lead books exactly that batch', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
 
       await offerSeat(lead.id, batch.id, { actor: 'staff-1' });
@@ -502,7 +437,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     });
 
     it('replaces an offer the lead already holds, and ignores the cooldown', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await runWaitlistOffers();
       const first = (await pending())[0];
@@ -516,20 +451,8 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
       );
     });
 
-    it("refuses a seat someone else holds, keeping the lead's existing offer", async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      const [holder, other] = await waiters(course.id, 2);
-      await runWaitlistOffers();
-
-      await expect(offerSeat(other.id, batch.id, { actor: 'staff' })).rejects.toThrow(
-        'no free seats',
-      );
-
-      expect((await pending()).map((o) => o.leadId)).toEqual([holder.id]);
-    });
-
     it('refuses a lead who is not waitlisted', async () => {
-      const { batch } = await seedBasics({ capacity: 1 });
+      const { batch } = await seedBasics();
       const lead = await makeLead('QUALIFIED');
 
       await expect(offerSeat(lead.id, batch.id, { actor: 'staff' })).rejects.toThrow(
@@ -539,21 +462,11 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
   });
 
   describe('concurrency', () => {
-    it('sweeps running together hand out a seat only once', async () => {
-      const { course } = await seedBasics({ capacity: 1 });
+    it('sweeps running together offer each lead once', async () => {
+      const { course } = await seedBasics();
       await waiters(course.id, 3);
 
       await Promise.all([runWaitlistOffers(), runWaitlistOffers(), runWaitlistOffers()]);
-
-      expect(await pending()).toHaveLength(1);
-      expect(await offerJobs()).toHaveLength(1);
-    });
-
-    it('sweeps running together give out each of several seats once', async () => {
-      const { course } = await seedBasics({ capacity: 3 });
-      await waiters(course.id, 6);
-
-      await Promise.all(Array.from({ length: 4 }, () => runWaitlistOffers()));
 
       const offers = await pending();
       expect(offers).toHaveLength(3);
@@ -561,21 +474,9 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
       expect(await offerJobs()).toHaveLength(3);
     });
 
-    it('one lead never holds seats in two batches, even if both are offered at once', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      await db.batch.create({
-        data: {
-          courseId: course.id,
-          name: 'Morning',
-          daysOfWeek: [1],
-          startTime: '08:00',
-          endTime: '09:00',
-          startDate: new Date('2026-01-01'),
-          endDate: new Date('2099-12-31'),
-          capacity: 1,
-          trialLink: TRIAL_LINK,
-        },
-      });
+    it('one lead never holds two offers, even if two batches offer at once', async () => {
+      const { course, batch } = await seedBasics();
+      await morningBatch(course.id);
       const [lead] = await waiters(course.id, 1);
 
       await Promise.all([runWaitlistOffers(), runWaitlistOffers(), runWaitlistOffers()]);
@@ -585,7 +486,7 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
     });
 
     it('the database itself refuses a second pending offer for a lead', async () => {
-      const { course, batch } = await seedBasics({ capacity: 5 });
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       const data = {
         leadId: lead.id,
@@ -599,40 +500,8 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
       await expect(db.waitlistOffer.create({ data })).rejects.toThrow();
     });
 
-    it('a holder booking against strangers always gets the held seat', async () => {
-      const { course, batch } = await seedBasics({ capacity: 1 });
-      const [holder] = await waiters(course.id, 1);
-      await runWaitlistOffers();
-      const strangers = await Promise.all(
-        Array.from({ length: 5 }, () => makeLead('QUALIFIED', { courseId: course.id })),
-      );
-
-      const results = await Promise.all([
-        ...strangers.map((s) => assignSeat(s.id, batch.id, { actor: 'test' })),
-        assignSeat(holder.id, batch.id, { actor: 'bot' }),
-      ]);
-
-      expect(results.filter((r) => r.result === 'trial')).toHaveLength(1);
-      expect((await leadRow(holder.id)).status).toBe('TRIAL_ACTIVE');
-      expect(await batchRow(batch.id)).toMatchObject({ seatsTaken: 1, status: 'FULL' });
-    });
-
-    it('holders booking together never oversell when capacity was cut below the offers', async () => {
-      const { course, batch } = await seedBasics({ capacity: 3 });
-      const leads = await waiters(course.id, 3);
-      await runWaitlistOffers();
-      await db.batch.update({ where: { id: batch.id }, data: { capacity: 1 } });
-
-      const results = await Promise.all(
-        leads.map((l) => assignSeat(l.id, batch.id, { actor: 'bot' })),
-      );
-
-      expect(results.filter((r) => r.result === 'trial')).toHaveLength(1);
-      expect(await batchRow(batch.id)).toMatchObject({ seatsTaken: 1 });
-    });
-
     it('a double tap books one seat', async () => {
-      const { course, batch } = await seedBasics({ capacity: 2 });
+      const { course, batch } = await seedBasics();
       const [lead] = await waiters(course.id, 1);
       await runWaitlistOffers();
 
@@ -643,23 +512,6 @@ describe.skipIf(!hasTestDb)('waitlist offers', () => {
 
       expect((await batchRow(batch.id)).seatsTaken).toBe(1);
       expect(await db.enrollment.count()).toBe(1);
-    });
-
-    it('a sweep racing new bookings never promises more seats than exist', async () => {
-      const { course, batch } = await seedBasics({ capacity: 2 });
-      await waiters(course.id, 3);
-      const strangers = await Promise.all(
-        Array.from({ length: 3 }, () => makeLead('QUALIFIED', { courseId: course.id })),
-      );
-
-      await Promise.all([
-        runWaitlistOffers(),
-        ...strangers.map((s) => assignSeat(s.id, batch.id, { actor: 'test' })),
-        runWaitlistOffers(),
-      ]);
-
-      const { seatsTaken, capacity } = await batchRow(batch.id);
-      expect(seatsTaken + (await pending()).length).toBeLessThanOrEqual(capacity);
     });
   });
 });

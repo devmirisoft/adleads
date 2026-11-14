@@ -26,6 +26,9 @@ export async function assignBatchAction(leadId: string, batchId: string) {
       throw new Error('Only leads still asking, qualified or waitlisted can be given a batch.');
     }
     const res = await assignSeat(lid, bid, { actor: user.id });
+    if (res.result === 'trialUsed') {
+      throw new Error("This lead has already had a free trial, so they can't get another one.");
+    }
     if (res.result === 'waitlisted') {
       throw new Error('That batch has no free seat now — the lead is waitlisted. Pick another.');
     }

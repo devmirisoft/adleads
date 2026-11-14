@@ -1,34 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { assignSeat, expire, runWaitlistOffers, sendTrialLink } from '@/modules/enrollments';
+import { assignSeat, expire, sendTrialLink } from '@/modules/enrollments';
 import { requestPayment } from '@/modules/payments';
 import { db, hasTestDb, makeLead, resetDb, seedBasics } from '../helpers/db';
 
 describe.skipIf(!hasTestDb)('expire()', () => {
   beforeEach(resetDb);
 
-  it('frees the seat and sends trial_ended; the next sweep offers the seat', async () => {
-    const { batch, course } = await seedBasics({ capacity: 1 });
+  it('frees the seat and sends trial_ended, once', async () => {
+    const { batch } = await seedBasics();
     const trialLead = await makeLead('QUALIFIED');
     const res = await assignSeat(trialLead.id, batch.id, { actor: 'test' });
     if (res.result !== 'trial') throw new Error('expected a seat');
     await sendTrialLink(res.enrollmentId);
     await requestPayment(res.enrollmentId, { actor: 'test' }); // → PAYMENT_PENDING
-
-    // Batch is full → two later leads are waitlisted for it; the older one should get the offer.
-    const first = await makeLead('QUALIFIED', { courseId: course.id, name: 'First Waiter' });
-    const second = await makeLead('QUALIFIED', { courseId: course.id, name: 'Second Waiter' });
-    for (const w of [first, second]) {
-      expect((await assignSeat(w.id, batch.id, { actor: 'test' })).result).toBe('waitlisted');
-      await db.answer.create({
-        data: {
-          leadId: w.id,
-          questionKey: 'batch',
-          answerValue: batch.id,
-          answerLabel: batch.name,
-        },
-      });
-    }
-    expect((await db.batch.findUniqueOrThrow({ where: { id: batch.id } })).status).toBe('FULL');
 
     await expire(res.enrollmentId, { actor: 'cron' });
 
@@ -52,17 +36,6 @@ describe.skipIf(!hasTestDb)('expire()', () => {
     // Running it again is a no-op.
     await expire(res.enrollmentId, { actor: 'cron' });
     expect(await sends()).toEqual([trialEnded]);
-
-    await runWaitlistOffers();
-    expect(await sends()).toEqual([
-      trialEnded,
-      {
-        leadId: first.id,
-        template: 'waitlist_seat_open',
-        vars: { name: 'First', batch: batch.name },
-        sentBy: 'cron',
-      },
-    ]);
   });
 
   it('refuses while the lead has no edge to EXPIRED, changing nothing', async () => {

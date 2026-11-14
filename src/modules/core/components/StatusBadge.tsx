@@ -38,7 +38,6 @@ const STATUS = {
   FAILED: { label: 'Failed', tone: 'danger' },
   // Batch
   OPEN: { label: 'Open', tone: 'success' },
-  FULL: { label: 'Full', tone: 'warning' },
   CLOSED: { label: 'Closed', tone: 'neutral' },
   NO_TRIAL_LINK: { label: 'No trial link', tone: 'warning' },
   // Message

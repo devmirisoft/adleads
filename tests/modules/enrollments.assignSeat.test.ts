@@ -5,40 +5,44 @@ import { db, hasTestDb, makeLead, resetDb, seedBasics } from '../helpers/db';
 describe.skipIf(!hasTestDb)('assignSeat()', () => {
   beforeEach(resetDb);
 
-  it('two leads racing for the last seat → exactly one TRIAL, one WAITLISTED', async () => {
-    const { batch, course } = await seedBasics({ capacity: 1 });
-    const [a, b] = await Promise.all([makeLead('QUALIFIED'), makeLead('QUALIFIED')]);
+  it('seats are unlimited: everyone racing in gets a trial and the count stays exact', async () => {
+    const { batch, course } = await seedBasics();
+    const leads = await Promise.all(Array.from({ length: 8 }, () => makeLead('QUALIFIED')));
 
-    const results = await Promise.all([
-      assignSeat(a.id, batch.id, { actor: 'test' }),
-      assignSeat(b.id, batch.id, { actor: 'test' }),
-    ]);
+    const results = await Promise.all(
+      leads.map((l) => assignSeat(l.id, batch.id, { actor: 'test' })),
+    );
 
-    expect(results.map((r) => r.result).sort()).toEqual(['trial', 'waitlisted']);
-    const statuses = await db.lead.findMany({
-      where: { id: { in: [a.id, b.id] } },
-      select: { status: true },
+    expect(results.every((r) => r.result === 'trial')).toBe(true);
+    expect(await db.batch.findUniqueOrThrow({ where: { id: batch.id } })).toMatchObject({
+      seatsTaken: 8,
+      status: 'OPEN',
     });
-    expect(statuses.map((s) => s.status).sort()).toEqual(['TRIAL_ACTIVE', 'WAITLISTED']);
-    const after = await db.batch.findUniqueOrThrow({ where: { id: batch.id } });
-    expect(after).toMatchObject({ seatsTaken: 1, status: 'FULL' });
-    expect(await db.enrollment.count()).toBe(1);
+    expect(await db.lead.count({ where: { status: 'TRIAL_ACTIVE' } })).toBe(8);
 
     // Trial dates: 3-day course trial, inclusive end; trial link queued.
     const e = await db.enrollment.findFirstOrThrow();
     expect((e.trialEnd.getTime() - e.trialStart.getTime()) / 86_400_000).toBe(
       (course.trialDays ?? 3) - 1,
     );
-    expect(await db.job.count({ where: { type: 'sendTrialLink' } })).toBe(1);
+    expect(await db.job.count({ where: { type: 'sendTrialLink' } })).toBe(8);
   });
 
-  it('never oversells under heavier contention', async () => {
-    const { batch } = await seedBasics({ capacity: 3 });
-    const leads = await Promise.all(Array.from({ length: 8 }, () => makeLead('QUALIFIED')));
-    const results = await Promise.all(
-      leads.map((l) => assignSeat(l.id, batch.id, { actor: 'test' })),
-    );
-    expect(results.filter((r) => r.result === 'trial')).toHaveLength(3);
-    expect((await db.batch.findUniqueOrThrow({ where: { id: batch.id } })).seatsTaken).toBe(3);
+  it('one free trial per phone number: a second booking changes nothing', async () => {
+    const { batch } = await seedBasics();
+    const lead = await makeLead('QUALIFIED');
+    expect((await assignSeat(lead.id, batch.id, { actor: 'test' })).result).toBe('trial');
+
+    // However they got back here (the status rules don't allow it today), no second trial.
+    await db.lead.update({ where: { id: lead.id }, data: { status: 'QUALIFIED' } });
+    expect(await assignSeat(lead.id, batch.id, { actor: 'test' })).toEqual({
+      result: 'trialUsed',
+    });
+    expect(await db.enrollment.count()).toBe(1);
+    expect(await db.job.count({ where: { type: 'sendTrialLink' } })).toBe(1);
+    expect(await db.batch.findUniqueOrThrow({ where: { id: batch.id } })).toMatchObject({
+      seatsTaken: 1,
+    });
+    expect((await db.lead.findUniqueOrThrow({ where: { id: lead.id } })).status).toBe('QUALIFIED');
   });
 });

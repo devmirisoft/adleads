@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useOptimistic, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { MoreHorizontal, Users } from 'lucide-react';
 import {
@@ -19,13 +19,14 @@ import {
   SelectTrigger,
   SelectValue,
   StatusBadge,
+  Switch,
   toast,
   type DataTableColumn,
 } from '@/modules/core/components';
 import { SOURCE_LABEL } from '../constants/statuses';
 import { leadName } from '../utils';
 import type { LeadListItem } from '../services/queries';
-import { assignLeads, resolveLead } from '../services/actions';
+import { assignLeads, resolveLead, setCalled } from '../services/actions';
 
 type Staff = { id: string; name: string };
 type Props = {
@@ -55,6 +56,11 @@ function columns(canAct: boolean, me: string): DataTableColumn<LeadListItem>[] {
       ),
     },
     { id: 'phone', header: 'Phone', cell: ({ row }) => <Phone e164={row.original.phoneE164} /> },
+    {
+      id: 'called',
+      header: 'Called',
+      cell: ({ row }) => <CalledToggle lead={row.original} canAct={canAct} />,
+    },
     { id: 'course', header: 'Course', cell: ({ row }) => row.original.course?.name ?? '—' },
     {
       id: 'batch',
@@ -103,6 +109,26 @@ function columns(canAct: boolean, me: string): DataTableColumn<LeadListItem>[] {
       cell: ({ row }) => <RowActions lead={row.original} canAct={canAct} me={me} />,
     },
   ];
+}
+
+/** Flips at once; the refreshed row confirms it, a failure snaps back with a toast. */
+function CalledToggle({ lead, canAct }: { lead: LeadListItem; canAct: boolean }) {
+  const [called, setOptimistic] = useOptimistic(!!lead.calledAt);
+  const [pending, start] = useTransition();
+  const toggle = (on: boolean) =>
+    start(async () => {
+      setOptimistic(on);
+      const res = await setCalled(lead.id, on);
+      if (!res.ok) toast.error(res.error);
+    });
+  return (
+    <Switch
+      checked={called}
+      onCheckedChange={toggle}
+      disabled={!canAct || pending}
+      aria-label={`Called ${leadName(lead)}`}
+    />
+  );
 }
 
 function RowActions({ lead, canAct, me }: { lead: LeadListItem; canAct: boolean; me: string }) {

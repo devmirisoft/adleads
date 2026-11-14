@@ -86,3 +86,21 @@ export async function getLeadsByAd(range: Range) {
     .sort((a, b) => b.leads - a.leads);
 }
 export type AdRow = Awaited<ReturnType<typeof getLeadsByAd>>[number];
+
+/** Which batches new leads join: enrollments (not cancelled) of leads created in the range, per batch. */
+export async function getBatchPreference(range: Range) {
+  const rows = await db.enrollment.groupBy({
+    by: ['batchId'],
+    where: { status: { not: 'CANCELLED' }, lead: { createdAt: createdIn(range) } },
+    _count: { _all: true },
+  });
+  const batches = await db.batch.findMany({
+    where: { id: { in: rows.map((r) => r.batchId) } },
+    select: { id: true, name: true, course: { select: { name: true } } },
+  });
+  const labelOf = new Map(batches.map((b) => [b.id, `${b.course.name} – ${b.name}`]));
+  return rows.map((r) => ({
+    label: labelOf.get(r.batchId) ?? 'Unknown batch',
+    value: r._count._all,
+  }));
+}

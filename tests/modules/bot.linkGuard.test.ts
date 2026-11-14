@@ -54,7 +54,7 @@ describe.skipIf(!hasTestDb)('class links with fake payment links behind live Wha
     let ids: Awaited<ReturnType<typeof seedBasics>>;
     beforeEach(async () => {
       await resetDb();
-      ids = await seedBasics({ capacity: 5 });
+      ids = await seedBasics();
     });
 
     it('finishing the script starts the trial and sends the trial link', async () => {
@@ -217,7 +217,7 @@ describe.skipIf(!hasTestDb)('class links with fake payment links behind live Wha
     let ids: Awaited<ReturnType<typeof seedBasics>>;
     beforeEach(async () => {
       await resetDb();
-      ids = await seedBasics({ capacity: 5, links: false });
+      ids = await seedBasics({ links: false });
     });
 
     it('finishing the script stops at QUALIFIED: no seat, flagged, holding message', async () => {

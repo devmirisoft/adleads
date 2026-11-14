@@ -1,5 +1,6 @@
 // Public API of this module — import from '@/modules/dashboard' only. Read-only reports.
 export {
+  getBatchPreference,
   getFunnel,
   getLeadsByAd,
   getStats,

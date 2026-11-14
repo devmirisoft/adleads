@@ -22,7 +22,7 @@ export function AssignBatchDialog({
       action="Assign batch"
       title={`Assign ${leadName} to a batch`}
       description="Starts their free trial and sends the batch's trial link."
-      emptyText="No batch has free seats right now."
+      emptyText="No batch is open right now."
       courseId={courseId}
       batches={batches}
       run={(batchId) => assignBatchAction(leadId, batchId)}

@@ -77,12 +77,11 @@ export function BatchFormDialog({ open, onOpenChange, courses, batch, sendNewLin
           endTime: batch.endTime,
           startDate: ymd(batch.startDate),
           endDate: ymd(batch.endDate),
-          capacity: batch.capacity,
           zoomHostUser: batch.zoomHostUser ?? '',
           trialLink: batch.trialLink ?? '',
           paidLink: batch.paidLink ?? '',
         }
-      : { daysOfWeek: [1, 2, 3, 4, 5], startTime: '19:00', endTime: '20:00', capacity: 20 },
+      : { daysOfWeek: [1, 2, 3, 4, 5], startTime: '19:00', endTime: '20:00' },
   });
 
   async function onSubmit(values: BatchInput) {
@@ -198,15 +197,6 @@ export function BatchFormDialog({ open, onOpenChange, courses, batch, sendNewLin
                   type="date"
                   aria-invalid={!!errors.endDate}
                   {...register('endDate')}
-                />
-              </FormField>
-              <FormField id="b-capacity" label="Seats" required error={errors.capacity?.message}>
-                <Input
-                  id="b-capacity"
-                  type="number"
-                  min={1}
-                  aria-invalid={!!errors.capacity}
-                  {...register('capacity', { valueAsNumber: true })}
                 />
               </FormField>
               <FormField

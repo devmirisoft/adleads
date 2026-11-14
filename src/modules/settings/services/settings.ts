@@ -9,6 +9,14 @@ import {
   type SettingsForm,
   type SettingValue,
 } from '../constants/keys';
+import {
+  BOT_MESSAGE_KEYS,
+  BOT_MESSAGES,
+  botMessageSchema,
+  fillMessage,
+  type BotMessageInput,
+  type BotMessageKey,
+} from '../constants/messages';
 
 /** Typed setting; falls back to the default if the row is missing or holds a bad value. */
 export async function getSetting<K extends SettingKey>(
@@ -37,4 +45,26 @@ export async function updateSettings(input: SettingsForm) {
       db.setting.upsert({ where: { key }, create: { key, value }, update: { value } }),
     ),
   );
+}
+
+const storedText = (value: unknown) => (typeof value === 'string' && value.trim() ? value : null);
+
+/** A bot reply ready to send: the staff-edited text (else the default) with placeholders filled. */
+export async function getMessage(key: BotMessageKey, vars?: Record<string, string>) {
+  const row = await db.setting.findUnique({ where: { key } });
+  return fillMessage(storedText(row?.value) ?? BOT_MESSAGES[key].default, vars);
+}
+
+/** Every bot reply as stored (placeholders unfilled), for the Bot script page. */
+export async function getBotMessages(): Promise<Record<BotMessageKey, string>> {
+  const rows = await db.setting.findMany({ where: { key: { in: BOT_MESSAGE_KEYS } } });
+  const stored = new Map(rows.map((r) => [r.key, storedText(r.value)]));
+  return Object.fromEntries(
+    BOT_MESSAGE_KEYS.map((k) => [k, stored.get(k) ?? BOT_MESSAGES[k].default]),
+  ) as Record<BotMessageKey, string>;
+}
+
+export async function saveBotMessage(input: BotMessageInput) {
+  const { key, text } = botMessageSchema.parse(input);
+  await db.setting.upsert({ where: { key }, create: { key, value: text }, update: { value: text } });
 }

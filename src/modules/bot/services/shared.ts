@@ -2,6 +2,7 @@ import 'server-only';
 import { db } from '@/lib/db';
 import { publishInboxChanged } from '@/lib/realtime/client';
 import { sendText, type MessageBody } from '@/modules/messaging';
+import { getMessage } from '@/modules/settings';
 import type { AskOptions, StepContext } from '../types';
 
 /** Postgres rejects non-UUID text in uuid columns, so check user-supplied ids before querying. */
@@ -35,11 +36,6 @@ export async function saveAnswer(
 /** Until a seat is booked the lead can go back and choose again (the CHANGE keyword in the engine). */
 export const CHANGE_HINT = 'Reply CHANGE to pick a different course or batch.';
 
-/** What a lead hears when there's nothing to book. Promises only what staff will actually do. */
-export const noSeats = (where: string) =>
-  `There are currently no available seats in ${where}. Our team will follow up with you.\n\n${CHANGE_HINT}`;
-
-const HANDED_OVER = 'Thanks for your message! Someone from our team will reply here soon.';
 /** Senders that aren't a person on the team. */
 const SYSTEM = ['bot', 'cron', 'webhook'];
 
@@ -47,7 +43,8 @@ const SYSTEM = ['bot', 'cron', 'webhook'];
  * Hand the chat to staff: flag it and tell the lead. Quiet only when that's already the last thing
  * we said (a burst of messages gets one reply) or a team member wrote last (don't talk over them).
  */
-export async function handOver(lead: { id: string; needsHuman: boolean }, text = HANDED_OVER) {
+export async function handOver(lead: { id: string; needsHuman: boolean }, text?: string) {
+  text ??= await getMessage('msg_handed_over');
   if (!lead.needsHuman) {
     await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
   }

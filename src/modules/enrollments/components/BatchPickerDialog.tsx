@@ -74,7 +74,7 @@ export function BatchPickerDialog({
               <SelectContent>
                 {sorted.map((b) => (
                   <SelectItem key={b.id} value={b.id}>
-                    {b.courseName} · {b.name} · {b.seatsLeft} left
+                    {b.courseName} · {b.name}
                   </SelectItem>
                 ))}
               </SelectContent>

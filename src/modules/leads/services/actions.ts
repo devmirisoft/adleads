@@ -41,6 +41,17 @@ export async function resolveLead(leadId: string) {
   });
 }
 
+/** The "Called" switch on the leads list. */
+export async function setCalled(leadId: string, called: boolean) {
+  return guarded(CAN_ACT, async () => {
+    await db.lead.update({
+      where: { id: id.parse(leadId) },
+      data: { calledAt: z.boolean().parse(called) ? new Date() : null },
+    });
+    return null;
+  });
+}
+
 export async function updateNotes(leadId: string, notes: string) {
   return guarded(CAN_ACT, async () => {
     const text = z.string().max(5000, 'Keep notes under 5,000 characters').parse(notes).trim();

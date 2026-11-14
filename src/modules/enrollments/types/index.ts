@@ -23,6 +23,5 @@ export type BatchOption = {
   name: string;
   courseId: string;
   courseName: string;
-  seatsLeft: number;
   hasTrialLink: boolean;
 };

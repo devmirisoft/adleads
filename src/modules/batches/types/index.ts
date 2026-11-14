@@ -25,11 +25,6 @@ export const batchInputSchema = z
     endTime: hhmm,
     startDate: ymd,
     endDate: ymd,
-    capacity: z
-      .number('Enter a number')
-      .int('Whole numbers only')
-      .min(1, 'At least 1 seat')
-      .max(500),
     zoomHostUser: z.email('Enter the Zoom host’s email'),
     trialLink: classLink,
     paidLink: classLink,
@@ -71,7 +66,7 @@ export type CourseInput = z.infer<typeof courseInputSchema>;
 
 export const batchFiltersSchema = z.object({
   q: z.preprocess(blank, z.string().trim().max(100).optional()),
-  status: z.preprocess(blank, z.enum(['OPEN', 'FULL', 'CLOSED']).optional()).catch(undefined),
+  status: z.preprocess(blank, z.enum(['OPEN', 'CLOSED']).optional()).catch(undefined),
   courseId: z.preprocess(blank, z.uuid().optional()).catch(undefined),
   page: z.coerce.number().int().min(1).catch(1),
   pageSize: z.coerce.number().int().min(10).max(100).catch(25),

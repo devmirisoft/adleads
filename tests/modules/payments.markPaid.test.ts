@@ -8,8 +8,8 @@ import { db, hasTestDb, makeLead, PAID_LINK, resetDb, seedBasics, TRIAL_LINK } f
 const FEE = 299_900;
 
 /** A lead on a TRIAL with its trial link and an open Razorpay payment link. */
-async function trialWithLink(capacity = 5) {
-  const { batch } = await seedBasics({ capacity });
+async function trialWithLink() {
+  const { batch } = await seedBasics();
   const lead = await makeLead('QUALIFIED');
   const res = await assignSeat(lead.id, batch.id, { actor: 'test' });
   if (res.result !== 'trial') throw new Error('expected a seat');

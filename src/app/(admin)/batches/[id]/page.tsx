@@ -8,7 +8,6 @@ import {
   getBatch,
   listCourses,
   needsTrialLink,
-  SeatMeter,
 } from '@/modules/batches';
 import {
   DateTime,
@@ -89,10 +88,7 @@ export default async function BatchPage({ params, searchParams }: PageProps<'/ba
                   </span>
                 ),
               },
-              {
-                label: 'Seats',
-                value: <SeatMeter taken={batch.seatsTaken} capacity={batch.capacity} />,
-              },
+              { label: 'Seats taken', value: batch.seatsTaken },
               { label: 'Zoom host', value: batch.zoomHostUser ?? '—' },
               {
                 label: 'Trial link',

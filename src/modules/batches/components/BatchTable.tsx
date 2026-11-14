@@ -25,7 +25,6 @@ import { closeBatchAction } from '../services/actions';
 import type { BatchListItem } from '../services/queries';
 import type { SendNewLink } from '../types';
 import { BatchFormDialog } from './BatchForm';
-import { SeatMeter } from './SeatMeter';
 
 type Course = { id: string; name: string };
 
@@ -135,10 +134,8 @@ export function BatchTable({ data, total, page, pageSize, courses, canEdit, send
       },
       {
         id: 'seats',
-        header: 'Seats',
-        cell: ({ row: { original: b } }) => (
-          <SeatMeter taken={b.seatsTaken} capacity={b.capacity} />
-        ),
+        header: 'Seats taken',
+        cell: ({ row }) => <span className="tabular-nums">{row.original.seatsTaken}</span>,
       },
       {
         id: 'status',
@@ -200,7 +197,7 @@ export function BatchFilterBar({ courses }: { courses: Course[] }) {
       <FilterSelect
         param="status"
         label="Status"
-        options={(['OPEN', 'FULL', 'CLOSED'] as const).map((s) => ({
+        options={(['OPEN', 'CLOSED'] as const).map((s) => ({
           value: s,
           label: statusLabel(s),
         }))}

@@ -5,10 +5,6 @@ export const SETTINGS = {
   default_trial_days: { schema: z.number().int().min(1).max(30), default: 3 },
   reminder_days_before: { schema: z.number().int().min(0).max(14), default: 2 },
   payment_link_expiry_hours: { schema: z.number().int().min(1).max(720), default: 72 },
-  welcome_text: {
-    schema: z.string().min(1).max(500),
-    default: 'Hi! Thanks for your interest in our live online classes.',
-  },
   nudge_after_hours: {
     schema: z.array(z.number().int().min(1).max(23)).max(2),
     default: [3, 22] as number[],
@@ -32,11 +28,6 @@ export const settingsFormSchema = z
     default_trial_days: whole('the trial length', 1, 30),
     reminder_days_before: whole('days', 0, 14),
     payment_link_expiry_hours: whole('hours', 1, 720),
-    welcome_text: z
-      .string()
-      .trim()
-      .min(1, 'Write a welcome message')
-      .max(500, 'Keep it under 500 characters'),
     first_nudge_hours: whole('hours', 1, 23),
     second_nudge_hours: whole('hours', 1, 23),
   })

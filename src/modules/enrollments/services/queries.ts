@@ -55,81 +55,43 @@ export async function listEnrollments(
   return { items, total, page: f.page, pageSize: f.pageSize };
 }
 
-/** Seats on offer to waitlisted leads, as a `_count`. `exceptLeadId`'s own offer doesn't count. */
-const heldCount = (at: Date, exceptLeadId?: string) => ({
-  _count: {
-    select: {
-      waitlistOffers: {
-        where: {
-          ...outstandingOffer(at),
-          ...(exceptLeadId && { leadId: { not: exceptLeadId } }),
-        },
-      },
-    },
-  },
-});
+/** Open and not over: bookable, since seats are unlimited. */
+const bookable = async () =>
+  ({ status: 'OPEN', endDate: { gte: istDate(await now()) } }) satisfies Prisma.BatchWhereInput;
 
-const seatsLeft = (b: {
-  capacity: number;
-  seatsTaken: number;
-  _count: { waitlistOffers: number };
-}) => b.capacity - b.seatsTaken - b._count.waitlistOffers;
-
-/** Batches with free seats (for assign / move / offer dialogs). `forLeadId` keeps their held seat. */
-export async function listOpenBatches(forLeadId?: string): Promise<BatchOption[]> {
-  const at = await now();
+/** Bookable batches (for assign / move / offer dialogs). */
+export async function listOpenBatches(): Promise<BatchOption[]> {
   const batches = await db.batch.findMany({
-    where: { status: 'OPEN', endDate: { gte: istDate(at) } },
-    include: { course: { select: { name: true } }, ...heldCount(at, forLeadId) },
+    where: await bookable(),
+    include: { course: { select: { name: true } } },
     orderBy: [{ course: { sortOrder: 'asc' } }, { startTime: 'asc' }],
   });
-  return batches
-    .map((b) => ({
-      id: b.id,
-      name: b.name,
-      courseId: b.courseId,
-      courseName: b.course.name,
-      seatsLeft: seatsLeft(b),
-      hasTrialLink: !!b.trialLink,
-    }))
-    .filter((b) => b.seatsLeft > 0);
+  return batches.map((b) => ({
+    id: b.id,
+    name: b.name,
+    courseId: b.courseId,
+    courseName: b.course.name,
+    hasTrialLink: !!b.trialLink,
+  }));
 }
 
-/** What the bot can book in this course now: open, not ended, with a seat no offer is holding. */
+/** What the bot can book in this course now. */
 export async function bookableBatches(courseId: string) {
-  const at = await now();
-  const batches = await db.batch.findMany({
-    where: { courseId, status: 'OPEN', endDate: { gte: istDate(at) } },
-    include: heldCount(at),
+  return db.batch.findMany({
+    where: { courseId, ...(await bookable()) },
     orderBy: [{ startTime: 'asc' }, { name: 'asc' }],
+    take: 10,
   });
-  return batches
-    .map((b) => ({ ...b, seatsLeft: seatsLeft(b) }))
-    .filter((b) => b.seatsLeft > 0)
-    .slice(0, 10);
 }
 
-/**
- * Active courses the bot lists: those with a batch that isn't closed or over. With nothing to book
- * right now they stay listed as waitlist only, so the lead can still register interest.
- */
+/** Active courses the bot lists: those with a bookable batch. */
 // ponytail: WhatsApp lists hold 10 rows; more than 10 such courses would need a second step.
 export async function listableCourses() {
-  const at = await now();
-  const live = {
-    status: { not: 'CLOSED' },
-    endDate: { gte: istDate(at) },
-  } satisfies Prisma.BatchWhereInput;
-  const courses = await db.course.findMany({
-    where: { isActive: true, batches: { some: live } },
-    include: { batches: { where: live, include: heldCount(at) } },
+  return db.course.findMany({
+    where: { isActive: true, batches: { some: await bookable() } },
     orderBy: { sortOrder: 'asc' },
     take: 10,
   });
-  return courses.map(({ batches, ...course }) => ({
-    ...course,
-    waitlistOnly: !batches.some((b) => b.status === 'OPEN' && seatsLeft(b) > 0),
-  }));
 }
 
 /** The seat offer this lead can book right now, if any. */

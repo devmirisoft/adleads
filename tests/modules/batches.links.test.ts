@@ -12,7 +12,6 @@ const valid = {
   endTime: '20:00',
   startDate: '2026-01-01',
   endDate: '2026-02-01',
-  capacity: 5,
   zoomHostUser: 'host@zoom.example',
 };
 const link = (trialLink: unknown, paidLink?: unknown) =>
@@ -58,9 +57,8 @@ describe('batch link validation', () => {
 });
 
 describe('missing trial link warning', () => {
-  it('shows while the batch takes trials, or will once a seat frees up', () => {
+  it('shows while the batch takes trials', () => {
     expect(needsTrialLink({ status: 'OPEN', trialLink: null })).toBe(true);
-    expect(needsTrialLink({ status: 'FULL', trialLink: null })).toBe(true);
   });
 
   it('not once a link is set, or on a closed batch', () => {

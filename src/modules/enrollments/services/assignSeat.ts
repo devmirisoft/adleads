@@ -8,12 +8,12 @@ import { transition, type Actor } from '@/modules/leads';
 import { getSetting } from '@/modules/settings';
 
 // Everything that changes batches.seats_taken lives in this file, always under a row lock.
+// Seats are unlimited: seats_taken is a count, and only a closed or ended batch turns a lead away.
 
 export type LockedBatch = {
   id: string;
   course_id: string;
   name: string;
-  capacity: number;
   seats_taken: number;
   status: BatchStatus;
   end_date: Date;
@@ -23,7 +23,7 @@ export type LockedBatch = {
 
 export async function lockBatch(tx: Tx, batchId: string): Promise<LockedBatch> {
   const [batch] = await tx.$queryRaw<LockedBatch[]>`
-    SELECT id, course_id, name, capacity, seats_taken, status, end_date, trial_link, waitlist_alerted_at
+    SELECT id, course_id, name, seats_taken, status, end_date, trial_link, waitlist_alerted_at
     FROM batches WHERE id = ${batchId}::uuid FOR UPDATE`;
   if (!batch) throw new Error(`Batch ${batchId} not found`);
   return batch;
@@ -32,7 +32,7 @@ export async function lockBatch(tx: Tx, batchId: string): Promise<LockedBatch> {
 /** A lead the waitlist can still reach. */
 export const WAITING = { status: 'WAITLISTED', optedOutAt: null } satisfies Prisma.LeadWhereInput;
 
-/** An offer holding a seat right now. A lapsed one stops counting at once, before the cron marks it. */
+/** An offer the lead can book right now. A lapsed one stops working at once, before the cron marks it. */
 export const outstandingOffer = (at: Date) =>
   ({
     status: 'PENDING',
@@ -40,33 +40,18 @@ export const outstandingOffer = (at: Date) =>
     lead: WAITING,
   }) satisfies Prisma.WaitlistOfferWhereInput;
 
-export const heldSeats = (tx: Tx, batchId: string, at: Date) =>
-  tx.waitlistOffer.count({ where: { batchId, ...outstandingOffer(at) } });
-
 /** Not closed and not over. */
 export const isLive = (b: LockedBatch, today: Date) =>
   b.status !== 'CLOSED' && b.end_date.getTime() >= today.getTime();
 
-const hasFreeSeat = (b: LockedBatch, today: Date, held: number) =>
-  isLive(b, today) && b.seats_taken + held < b.capacity;
-
-/** OPEN ↔ FULL follows the count; CLOSED stays CLOSED. */
-const statusFor = (b: LockedBatch, taken: number): BatchStatus =>
-  b.status === 'CLOSED' ? 'CLOSED' : taken >= b.capacity ? 'FULL' : 'OPEN';
-
 async function takeSeat(tx: Tx, b: LockedBatch) {
-  const taken = b.seats_taken + 1;
-  await tx.batch.update({
-    where: { id: b.id },
-    data: { seatsTaken: taken, status: statusFor(b, taken) },
-  });
+  await tx.batch.update({ where: { id: b.id }, data: { seatsTaken: b.seats_taken + 1 } });
 }
 
 async function releaseSeat(tx: Tx, b: LockedBatch) {
-  const taken = Math.max(0, b.seats_taken - 1);
   await tx.batch.update({
     where: { id: b.id },
-    data: { seatsTaken: taken, status: statusFor(b, taken) },
+    data: { seatsTaken: Math.max(0, b.seats_taken - 1) },
   });
 }
 
@@ -75,12 +60,16 @@ export async function freeSeat(tx: Tx, batchId: string) {
   await releaseSeat(tx, await lockBatch(tx, batchId));
 }
 
-export type AssignResult = { result: 'trial'; enrollmentId: string } | { result: 'waitlisted' };
+export type AssignResult =
+  | { result: 'trial'; enrollmentId: string }
+  | { result: 'waitlisted' }
+  /** One free trial per lead (= per phone number): this one already had theirs. Nothing changed. */
+  | { result: 'trialUsed' };
 
 /**
- * Give a QUALIFIED/WAITLISTED lead a trial seat: lock the batch, check capacity, create the TRIAL
+ * Give a QUALIFIED/WAITLISTED lead a trial seat: lock the batch, check it's live, create the TRIAL
  * enrollment, take the seat, lead → TRIAL_ACTIVE, queue the trial link — one transaction.
- * Seats held by other leads' open offers aren't free. Closed, ended or no seat → lead WAITLISTED.
+ * Closed or ended → lead WAITLISTED. Already had a trial → nothing changes.
  */
 export async function assignSeat(
   leadId: string,
@@ -95,15 +84,15 @@ export async function assignSeat(
       where: { id: leadId },
       select: { status: true },
     });
+    // Every enrollment starts as a trial, so any earlier one means the free trial is used.
+    if (await tx.enrollment.count({ where: { leadId } })) return { result: 'trialUsed' };
     const myOffer = await tx.waitlistOffer.findFirst({
       where: { leadId, batchId, ...outstandingOffer(at) },
     });
 
-    // An offer is honoured even if capacity was cut below the seats on offer: first to book wins.
-    const held = myOffer ? 0 : await heldSeats(tx, batchId, at);
-    if (!hasFreeSeat(batch, today, held)) {
+    if (!isLive(batch, today)) {
       if (lead.status !== 'WAITLISTED') {
-        await transition(leadId, 'WAITLISTED', { actor, note: 'No seat available' }, tx);
+        await transition(leadId, 'WAITLISTED', { actor, note: 'Batch closed or ended' }, tx);
       }
       return { result: 'waitlisted' };
     }
@@ -121,21 +110,13 @@ export async function assignSeat(
 
     const course = await tx.course.findUniqueOrThrow({ where: { id: batch.course_id } });
     const trialDays = course.trialDays ?? (await getSetting('default_trial_days', tx));
-    const trial = {
-      status: 'TRIAL' as const,
-      trialStart: today,
-      trialEnd: addTrialDays(today, trialDays),
-    };
-    const enrollment = await tx.enrollment.upsert({
-      where: { leadId_batchId: { leadId, batchId } },
-      create: { leadId, batchId, ...trial },
-      // Same lead back in the same batch (e.g. after a waitlist): start a fresh trial.
-      update: {
-        ...trial,
-        zoomJoinUrl: null,
-        linkSentAt: null,
-        cancelledAt: null,
-        cancelReason: null,
+    const enrollment = await tx.enrollment.create({
+      data: {
+        leadId,
+        batchId,
+        status: 'TRIAL',
+        trialStart: today,
+        trialEnd: addTrialDays(today, trialDays),
       },
     });
     await takeSeat(tx, batch);
@@ -172,8 +153,8 @@ export async function moveBatch(enrollmentId: string, newBatchId: string) {
       [b, await lockBatch(tx, b)],
     ]);
     const target = locked.get(newBatchId)!;
-    if (!hasFreeSeat(target, istDate(at), await heldSeats(tx, newBatchId, at))) {
-      throw new Error('That batch has no free seats, or has closed or ended.');
+    if (!isLive(target, istDate(at))) {
+      throw new Error('That batch has closed or ended.');
     }
     await takeSeat(tx, target);
     await releaseSeat(tx, locked.get(e.batchId)!);
@@ -185,12 +166,7 @@ export async function moveBatch(enrollmentId: string, newBatchId: string) {
   });
 }
 
-/**
- * Paid after the trial EXPIRED: take the seat back, even past capacity — they've paid.
- * Returns true if that over-filled the batch (caller flags it for staff). Use inside markPaid's transaction.
- */
-export async function reclaimSeat(tx: Tx, batchId: string): Promise<boolean> {
-  const batch = await lockBatch(tx, batchId);
-  await takeSeat(tx, batch);
-  return batch.seats_taken + 1 > batch.capacity;
+/** Paid after the trial EXPIRED: take the seat back. Use inside markPaid's transaction. */
+export async function reclaimSeat(tx: Tx, batchId: string) {
+  await takeSeat(tx, await lockBatch(tx, batchId));
 }

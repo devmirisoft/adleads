@@ -4,7 +4,7 @@ import { offerSeatAction } from '../services/actions';
 import type { BatchOption } from '../types';
 import { BatchPickerDialog } from './BatchPickerDialog';
 
-/** Hold a seat for a waitlisted lead and ask them to book it. Replaces any offer they hold. */
+/** Offer a waitlisted lead a batch and ask them to book it. Replaces any offer they hold. */
 export function OfferSeatDialog({
   leadId,
   leadName,
@@ -22,8 +22,8 @@ export function OfferSeatDialog({
       action="Offer seat"
       variant="outline"
       title={`Offer ${leadName} a seat`}
-      description="Holds a seat for 24 hours and sends a message with a Book my seat button."
-      emptyText="No batch with a trial link has free seats right now."
+      description="Sends a message with a Book my seat button. The offer lasts 24 hours."
+      emptyText="No open batch has a trial link right now."
       courseId={courseId}
       batches={batches.filter((b) => b.hasTrialLink)}
       run={(batchId) => offerSeatAction(leadId, batchId)}

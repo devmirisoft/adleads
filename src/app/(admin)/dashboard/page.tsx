@@ -1,8 +1,11 @@
+import { PieChart as PieChartIcon } from 'lucide-react';
 import { requireUser } from '@/modules/auth';
 import {
+  EmptyState,
   FilterDateRange,
   Money,
   PageHeader,
+  PieChart,
   SectionCard,
   StatTile,
 } from '@/modules/core/components';
@@ -10,6 +13,7 @@ import { flatParams } from '@/modules/core/utils';
 import { BatchTable, listAllBatches } from '@/modules/batches';
 import {
   FunnelCard,
+  getBatchPreference,
   getFunnel,
   getLeadsByAd,
   getStats,
@@ -22,11 +26,12 @@ export default async function DashboardPage({ searchParams }: PageProps<'/dashbo
   await requireUser(); // also makes this per request: the stats are "as of now"
   const sp = flatParams(await searchParams);
   const range = await resolveRange(sp.from, sp.to);
-  const [stats, funnel, ads, batches] = await Promise.all([
+  const [stats, funnel, ads, batches, batchPreference] = await Promise.all([
     getStats(),
     getFunnel(range),
     getLeadsByAd(range),
     listAllBatches(),
+    getBatchPreference(range),
   ]);
 
   return (
@@ -68,7 +73,25 @@ export default async function DashboardPage({ searchParams }: PageProps<'/dashbo
             />
           </SectionCard>
         </div>
-        <FunnelCard counts={funnel} order={LEAD_STATUS} />
+        <div className="flex flex-col gap-6">
+          <FunnelCard counts={funnel} order={LEAD_STATUS} />
+          <SectionCard
+            title="Batch preference"
+            description="Batches joined by leads created in this range (cancelled enrollments left out)"
+          >
+            <PieChart
+              data={batchPreference}
+              otherLabel="Other batches"
+              emptyState={
+                <EmptyState
+                  icon={PieChartIcon}
+                  title="No enrollments yet"
+                  description="Leads created in this range haven't joined a batch."
+                />
+              }
+            />
+          </SectionCard>
+        </div>
       </div>
     </>
   );

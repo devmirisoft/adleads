@@ -32,7 +32,6 @@ enum LeadSource {
 
 enum BatchStatus {
   OPEN
-  FULL
   CLOSED
 }
 
@@ -149,7 +148,7 @@ model Batch {
   endTime           String      @map("end_time") @db.VarChar(5)
   startDate         DateTime    @map("start_date") @db.Date
   endDate           DateTime    @map("end_date") @db.Date
-  capacity          Int
+  /// Live (TRIAL/PAID) enrollments. A count, not a limit: seats are unlimited.
   seatsTaken        Int         @default(0) @map("seats_taken")
   /// Deprecated: the Zoom API is retired, nothing reads or writes this.
   zoomMeetingId     BigInt?     @map("zoom_meeting_id")
@@ -192,6 +191,8 @@ model Lead {
   remindersSent   Int        @default(0) @map("reminders_sent")
   optedOutAt      DateTime?  @map("opted_out_at")
   assignedToId    String?    @map("assigned_to_id") @db.Uuid
+  /// Set when staff tick "Called" on the leads list; null = not called yet.
+  calledAt        DateTime?  @map("called_at")
   notes           String?
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")

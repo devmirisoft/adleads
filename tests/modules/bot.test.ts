@@ -49,7 +49,7 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
   let ids: Awaited<ReturnType<typeof seedBasics>>;
   beforeEach(async () => {
     await resetDb();
-    ids = await seedBasics({ capacity: 5 });
+    ids = await seedBasics();
   });
 
   it('happy path: Hi → name → course → batch → Confirm → trial link', async () => {
@@ -76,7 +76,7 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
       {
         id: ids.batch.id,
         title: 'Evening Mon–Fri',
-        description: 'Mon–Fri · 7:00 PM · 5 seats left',
+        description: 'Mon–Fri · 7:00 PM',
       },
     ]);
 
@@ -271,7 +271,7 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
 
   describe('which courses are offered', () => {
     /** A second course with one batch, so hiding the first still leaves a list to look at. */
-    async function otherCourse(batch: Partial<Prisma.BatchUncheckedCreateInput> = {}) {
+    async function otherCourse() {
       const course = await db.course.create({
         data: { name: 'Python Basics', description: 'Start coding', feePaise: 100, sortOrder: 2 },
       });
@@ -284,29 +284,21 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
           endTime: '11:00',
           startDate: new Date('2026-01-01'),
           endDate: new Date('2099-12-31'),
-          capacity: 5,
           trialLink: 'https://zoom.example/j/py',
-          ...batch,
         },
       });
       return { course, batch: row };
     }
-    const fill = (id: string, capacity: number) =>
-      db.batch.update({ where: { id }, data: { seatsTaken: capacity, status: 'FULL' } });
+    /** Seats are unlimited, so only this waitlists: the batch closes while the lead is picking. */
+    async function batchClosesMidPick(batchId: string) {
+      await db.batch.update({ where: { id: batchId }, data: { status: 'CLOSED' } });
+      await say({ kind: 'text', text: 'hmm' }); // not a pick → the batch list is asked again
+    }
 
-    it('a course with a free seat is bookable, with no waitlist label', async () => {
+    it('a batch that closes while the lead is picking waitlists them and flags staff', async () => {
       await startAndName();
-      const list = JSON.stringify(await lastOut());
-      expect(list).toContain('Spoken English');
-      expect(list).not.toContain('Waitlist only');
-    });
-
-    it('a full course stays listed as waitlist only; picking it waitlists and flags staff', async () => {
-      await fill(ids.batch.id, 5);
-      await startAndName();
-      expect(JSON.stringify(await lastOut())).toContain('Waitlist only');
-
       await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
+      await batchClosesMidPick(ids.batch.id);
 
       const l = await lead();
       expect(l).toMatchObject({ status: 'WAITLISTED', needsHuman: true, currentStep: null });
@@ -325,7 +317,6 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     it.each([
       ['closed', { status: 'CLOSED' as const }],
       ['ended', { endDate: new Date('2020-01-01') }],
-      ['full but ended', { status: 'FULL' as const, endDate: new Date('2020-01-01') }],
     ])('a course whose only batch is %s is hidden', async (_name, change) => {
       await db.batch.update({ where: { id: ids.batch.id }, data: change });
       await otherCourse();
@@ -347,30 +338,11 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
       expect(await lead()).toMatchObject({ status: 'ASKING', courseId: null });
     });
 
-    it('a full batch next to a closed one still counts as waitlist only', async () => {
-      await fill(ids.batch.id, 5);
-      await db.batch.create({
-        data: {
-          courseId: ids.course.id,
-          name: 'Closed one',
-          daysOfWeek: [1],
-          startTime: '08:00',
-          endTime: '09:00',
-          startDate: new Date('2026-01-01'),
-          endDate: new Date('2099-12-31'),
-          capacity: 5,
-          status: 'CLOSED',
-        },
-      });
-      await startAndName();
-      expect(JSON.stringify(await lastOut())).toContain('Waitlist only');
-    });
-
-    it('a waitlisted lead keeps getting answers and can CHANGE to a course with seats', async () => {
-      await fill(ids.batch.id, 5);
+    it('a waitlisted lead keeps getting answers and can CHANGE to another course', async () => {
       const python = await otherCourse();
       await startAndName();
       await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
+      await batchClosesMidPick(ids.batch.id);
       const { id } = await lead();
       expect(await lead()).toMatchObject({ status: 'WAITLISTED', needsHuman: true });
       const offer = await db.waitlistOffer.create({
@@ -412,12 +384,13 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     });
 
     it('changing course drops the old batch, so "yes" can never book the wrong course', async () => {
-      const python = await otherCourse({ seatsTaken: 5, status: 'FULL' });
+      const python = await otherCourse();
       await startAndName();
       await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
       await say({ kind: 'list', id: ids.batch.id, title: 'Evening Mon–Fri' });
       await say({ kind: 'button', id: 'change', title: 'Change' });
       await say({ kind: 'list', id: python.course.id, title: 'Python Basics' });
+      await batchClosesMidPick(python.batch.id);
 
       const l = await lead();
       expect(l).toMatchObject({ status: 'WAITLISTED', courseId: python.course.id });

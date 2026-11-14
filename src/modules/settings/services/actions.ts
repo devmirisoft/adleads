@@ -3,7 +3,8 @@ import 'server-only';
 import { z } from 'zod';
 import { ADMIN_ONLY, guarded } from '@/modules/auth';
 import type { NewUser, SettingsForm } from '../constants/keys';
-import { updateSettings } from './settings';
+import type { BotMessageInput } from '../constants/messages';
+import { saveBotMessage, updateSettings } from './settings';
 import { createUser, setUserActive, setUserRole } from './users';
 
 const id = z.uuid();
@@ -12,6 +13,13 @@ const role = z.enum(['ADMIN', 'SALES', 'VIEWER']);
 export async function saveSettingsAction(input: SettingsForm) {
   return guarded(ADMIN_ONLY, async () => {
     await updateSettings(input);
+    return null;
+  });
+}
+
+export async function saveBotMessageAction(input: BotMessageInput) {
+  return guarded(ADMIN_ONLY, async () => {
+    await saveBotMessage(input);
     return null;
   });
 }

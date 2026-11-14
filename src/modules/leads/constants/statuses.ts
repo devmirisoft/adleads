@@ -49,3 +49,21 @@ export const MANUAL_STATUS_TARGETS: readonly LeadStatus[] = [
 
 export const canTransition = (from: LeadStatus, to: LeadStatus) =>
   LEAD_TRANSITIONS[from].includes(to);
+
+/** Leads-page age tabs, by when the lead first messaged. [min, max) in days; null = no upper end. */
+export const LEAD_AGES = ['hot', '10d', '3m', '6m', '12m'] as const;
+export type LeadAge = (typeof LEAD_AGES)[number];
+export const AGE_LABEL: Record<LeadAge, string> = {
+  hot: 'Hot (10 days)',
+  '10d': '10 days–3 months',
+  '3m': '3–6 months',
+  '6m': '6–12 months',
+  '12m': 'Over 12 months',
+};
+export const AGE_DAYS: Record<LeadAge, readonly [number, number | null]> = {
+  hot: [0, 10],
+  '10d': [10, 90],
+  '3m': [90, 180],
+  '6m': [180, 365],
+  '12m': [365, null],
+};

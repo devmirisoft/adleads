@@ -7,6 +7,7 @@ import {
   Button,
   FormField,
   Input,
+  KeyValueList,
   Label,
   SectionCard,
   Switch,
@@ -14,18 +15,25 @@ import {
   toast,
 } from '@/modules/core/components';
 import { saveQuestionAction } from '../services/actions';
-import type { ScriptQuestion } from '../services/script';
+import type { OptionsPreview, ScriptQuestion } from '../services/script';
 import { questionUpdateSchema, type QuestionUpdate } from '../types';
 
 const INPUT_LABEL = { TEXT: 'Free text', BUTTONS: 'Buttons', LIST: 'List' } as const;
 const SOURCE_HINT = {
   STATIC: '',
   COURSES: 'Options: the active courses (edit them on the Courses tab).',
-  BATCHES: 'Options: that course’s batches with free seats.',
+  BATCHES: 'Options: the open batches of the course they picked.',
 } as const;
+const CONFIRM_HINT = 'Their name, course and batch are listed above this message.';
 
-/** One bot question: prompt, static option labels, on/off. */
-export function QuestionEditor({ question: q }: { question: ScriptQuestion }) {
+/** One bot question: prompt, static option labels, on/off, and the list it sends (`preview`). */
+export function QuestionEditor({
+  question: q,
+  preview,
+}: {
+  question: ScriptQuestion;
+  preview?: OptionsPreview;
+}) {
   const {
     control,
     register,
@@ -52,7 +60,7 @@ export function QuestionEditor({ question: q }: { question: ScriptQuestion }) {
   return (
     <SectionCard
       title={`Step ${q.step}: ${q.key}`}
-      description={`${INPUT_LABEL[q.inputType]}. ${SOURCE_HINT[q.optionsSource]}`}
+      description={`${INPUT_LABEL[q.inputType]}. ${q.key === 'confirm' ? CONFIRM_HINT : SOURCE_HINT[q.optionsSource]}`}
     >
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
         <FormField
@@ -68,6 +76,7 @@ export function QuestionEditor({ question: q }: { question: ScriptQuestion }) {
             {...register('prompt')}
           />
         </FormField>
+        {preview && <OptionsPreviewList preview={preview} />}
         {fields.length > 0 && (
           <div className="grid gap-4 sm:grid-cols-2">
             {fields.map((f, i) => (
@@ -109,5 +118,23 @@ export function QuestionEditor({ question: q }: { question: ScriptQuestion }) {
         </div>
       </form>
     </SectionCard>
+  );
+}
+
+const NOTHING_OPEN = 'No course has an open batch right now, so the bot hands the lead to staff here.';
+
+/** The list the lead gets under this question, as the bot would build it right now. */
+function OptionsPreviewList({ preview }: { preview: OptionsPreview }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border p-4">
+      <p className="text-sm font-medium">What the lead sees: a “{preview.button}” list</p>
+      {preview.groups.length === 0 && <p className="text-xs text-muted-foreground">{NOTHING_OPEN}</p>}
+      {preview.groups.map((g, i) => (
+        <div key={g.heading ?? i} className="flex flex-col gap-2">
+          {g.heading && <p className="text-xs text-muted-foreground">{g.heading}</p>}
+          <KeyValueList items={g.rows.map((r) => ({ label: r.title, value: r.description }))} />
+        </div>
+      ))}
+    </div>
   );
 }
