@@ -32,6 +32,7 @@ import {
   FilterBar,
   FilterDateRange,
   FilterSelect,
+  FilterTabs,
   FilterToggle,
   FormField,
   Input,
@@ -42,6 +43,7 @@ import {
   Money,
   PageHeader,
   Phone,
+  PieChart,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -96,6 +98,11 @@ const TOKENS = [
   ['warning', 'bg-warning'],
   ['danger', 'bg-danger'],
   ['read', 'bg-read'],
+  ['chart-1', 'bg-chart-1'],
+  ['chart-2', 'bg-chart-2'],
+  ['chart-3', 'bg-chart-3'],
+  ['chart-4', 'bg-chart-4'],
+  ['chart-5', 'bg-chart-5'],
 ] as const;
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -181,6 +188,25 @@ function Components() {
         <StatTile label="Active trials" value={58} />
         <StatTile label="Revenue this month" value={<Money paise={14_99_500_00} />} />
       </div>
+
+      <SectionCard
+        title="PieChart"
+        description="Largest first; past 5 parts the rest fold into one grey slice. Hover a slice for its figure."
+      >
+        <PieChart
+          otherLabel="Other batches"
+          data={[
+            { label: 'Morning Mon–Fri', value: 42 },
+            { label: 'Evening Mon–Fri', value: 31 },
+            { label: 'Weekend morning', value: 18 },
+            { label: 'Weekend evening', value: 12 },
+            { label: 'Lunch Mon–Wed', value: 7 },
+            { label: 'Night Tue–Thu', value: 4 },
+            { label: 'Early Sat', value: 2 },
+          ]}
+          emptyState={<EmptyState icon={Users} title="No data" />}
+        />
+      </SectionCard>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SectionCard title="Money, DateTime, Phone">
@@ -528,6 +554,14 @@ function SampleListPage() {
             </Button>
           </>
         }
+      />
+      <FilterTabs
+        param="age"
+        label="Lead age"
+        options={[
+          { value: 'hot', label: 'Hot (10 days)' },
+          { value: '3m', label: '3–6 months' },
+        ]}
       />
       <FilterBar>
         <FilterSelect

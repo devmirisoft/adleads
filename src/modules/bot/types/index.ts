@@ -6,7 +6,7 @@ export type StepKey = 'name' | 'course' | 'batch' | 'confirm';
 
 export type StepResult =
   | { result: 'next' }
-  /** Invalid answer: re-ask with this hint (a second miss in a row hands over to a human). */
+  /** Invalid answer: re-ask with this hint (a repeat miss also points to HELP). */
   | { result: 'retry'; reason: string }
   | { result: 'goto'; step: StepKey }
   /** The step finished the conversation itself (e.g. waitlisted). */

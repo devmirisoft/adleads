@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LEAD_STATUS } from '../constants/statuses';
+import { LEAD_AGES, LEAD_STATUS } from '../constants/statuses';
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const blankToUndefined = (v: unknown) => (v === '' ? undefined : v);
@@ -15,6 +15,7 @@ export const leadFiltersSchema = z.object({
     .catch(undefined),
   from: z.preprocess(blankToUndefined, ymd.optional()).catch(undefined),
   to: z.preprocess(blankToUndefined, ymd.optional()).catch(undefined),
+  age: z.preprocess(blankToUndefined, z.enum(LEAD_AGES).optional()).catch(undefined),
   needsHuman: z.preprocess((v) => v === '1' || v === 'true', z.boolean()),
   page: z.coerce.number().int().min(1).catch(1),
   pageSize: z.coerce.number().int().min(10).max(100).catch(25),

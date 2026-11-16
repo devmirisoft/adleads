@@ -120,7 +120,6 @@ describe.skipIf(!hasTestDb)('jobs are safe to run twice', () => {
         endTime: batch.endTime,
         startDate: batch.startDate,
         endDate: batch.endDate,
-        capacity: batch.capacity,
         zoomHostUser: batch.zoomHostUser,
         trialLink: 'https://zoom.example/j/other-trial',
       },

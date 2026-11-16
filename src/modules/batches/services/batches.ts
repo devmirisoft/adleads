@@ -1,5 +1,4 @@
 import 'server-only';
-import type { BatchStatus } from '@/generated/prisma/client';
 import { db } from '@/lib/db';
 import type { LinkKind } from '@/modules/core/types';
 import { batchInputSchema, type BatchInput, type LinkChange } from '../types';
@@ -46,9 +45,6 @@ async function assertNoHostClash(b: Parsed, excludeId?: string) {
   }
 }
 
-const statusFor = (status: BatchStatus, seatsTaken: number, capacity: number): BatchStatus =>
-  status === 'CLOSED' ? 'CLOSED' : seatsTaken >= capacity ? 'FULL' : 'OPEN';
-
 export async function createBatch(input: BatchInput) {
   const b = parse(input);
   await assertNoHostClash(b);
@@ -75,21 +71,13 @@ const countRecipients = (batchId: string, kind: LinkKind) =>
 export async function updateBatch(id: string, input: BatchInput) {
   const b = parse(input);
   const current = await db.batch.findUniqueOrThrow({ where: { id } });
-  if (b.capacity < current.seatsTaken) {
-    throw new BatchError(
-      `${current.seatsTaken} seats are already taken — capacity can't be lower than that.`,
-    );
-  }
   if (b.courseId !== current.courseId && current.seatsTaken > 0) {
     throw new BatchError("This batch has students, so its course can't change.");
   }
   const data = toData(b);
   // Only if this save moves the slot: an old overlap must not block rotating a dead link.
   if (slot(data) !== slot(current)) await assertNoHostClash(b, id);
-  const batch = await db.batch.update({
-    where: { id },
-    data: { ...data, status: statusFor(current.status, current.seatsTaken, b.capacity) },
-  });
+  const batch = await db.batch.update({ where: { id }, data });
 
   const changed: LinkKind[] = [];
   if (data.trialLink && data.trialLink !== current.trialLink) changed.push('trial');

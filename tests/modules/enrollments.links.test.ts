@@ -20,7 +20,7 @@ describe.skipIf(!hasTestDb)('class links', () => {
   let ids: Awaited<ReturnType<typeof seedBasics>>;
   beforeEach(async () => {
     await resetDb();
-    ids = await seedBasics({ capacity: 10 });
+    ids = await seedBasics();
   });
 
   async function trial() {
@@ -131,7 +131,6 @@ describe.skipIf(!hasTestDb)('class links', () => {
           endTime: '08:00',
           startDate: ids.batch.startDate,
           endDate: ids.batch.endDate,
-          capacity: 5,
           ...data,
         },
       });
@@ -305,7 +304,6 @@ describe.skipIf(!hasTestDb)('class links', () => {
       endTime: ids.batch.endTime,
       startDate: '2026-01-01',
       endDate: '2099-12-31',
-      capacity: ids.batch.capacity,
       zoomHostUser: 'host@zoom.example',
       trialLink: TRIAL_LINK,
       paidLink: PAID_LINK,
@@ -345,7 +343,6 @@ describe.skipIf(!hasTestDb)('class links', () => {
           endTime: ids.batch.endTime,
           startDate: ids.batch.startDate,
           endDate: ids.batch.endDate,
-          capacity: 5,
           zoomHostUser: 'host@zoom.example',
         },
       });

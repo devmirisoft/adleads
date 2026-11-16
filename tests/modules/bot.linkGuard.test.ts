@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
 import { runJobsNow } from '@/app/_jobs/handlers';
-import { assignSeat } from '@/modules/enrollments';
+import { assignSeat, offerSeat } from '@/modules/enrollments';
 import { recordWebhook } from '@/modules/jobs';
 import { buildMetaPayload, metaEventKey, type SimulatedInbound } from '@/modules/messaging';
 import { expireDueTrials, markPaid, requestPayment, runTrialsCron } from '@/modules/payments';
@@ -41,19 +41,6 @@ describe.skipIf(!hasTestDb)('class links with fake payment links behind live Wha
     return db.lead.findUniqueOrThrow({ where: { phoneE164: PHONE } });
   }
 
-  async function waitlisted(ids: Awaited<ReturnType<typeof seedBasics>>) {
-    const lead = await makeLead('WAITLISTED', { courseId: ids.course.id });
-    await db.answer.create({
-      data: {
-        leadId: lead.id,
-        questionKey: 'batch',
-        answerValue: ids.batch.id,
-        answerLabel: ids.batch.name,
-      },
-    });
-    return lead;
-  }
-
   /** A trial booked through the job queue, so the trial link has gone out and is stored. */
   async function trial(ids: Awaited<ReturnType<typeof seedBasics>>) {
     const lead = await makeLead('QUALIFIED');
@@ -67,7 +54,7 @@ describe.skipIf(!hasTestDb)('class links with fake payment links behind live Wha
     let ids: Awaited<ReturnType<typeof seedBasics>>;
     beforeEach(async () => {
       await resetDb();
-      ids = await seedBasics({ capacity: 5 });
+      ids = await seedBasics();
     });
 
     it('finishing the script starts the trial and sends the trial link', async () => {
@@ -84,8 +71,9 @@ describe.skipIf(!hasTestDb)('class links with fake payment links behind live Wha
       expect((await sentTo(lead.id)).at(-1)).toContain(TRIAL_LINK);
     });
 
-    it('a waitlisted lead booking a free seat starts the trial too', async () => {
-      const lead = await waitlisted(ids);
+    it('a waitlisted lead booking an offered seat starts the trial too', async () => {
+      const lead = await makeLead('WAITLISTED', { courseId: ids.course.id });
+      await offerSeat(lead.id, ids.batch.id, { actor: 'test' });
       await say(lead.phoneE164, { kind: 'button', id: 'book_seat', title: 'Book my seat' });
 
       expect((await leadRow(lead.id)).status).toBe('TRIAL_ACTIVE');
@@ -229,7 +217,7 @@ describe.skipIf(!hasTestDb)('class links with fake payment links behind live Wha
     let ids: Awaited<ReturnType<typeof seedBasics>>;
     beforeEach(async () => {
       await resetDb();
-      ids = await seedBasics({ capacity: 5, links: false });
+      ids = await seedBasics({ links: false });
     });
 
     it('finishing the script stops at QUALIFIED: no seat, flagged, holding message', async () => {
@@ -245,8 +233,18 @@ describe.skipIf(!hasTestDb)('class links with fake payment links behind live Wha
       expect(sent.join()).not.toContain('https://');
     });
 
-    it('a waitlisted lead asking for a seat stays waitlisted, flagged, holding message', async () => {
-      const lead = await waitlisted(ids);
+    it('a lead booking an offer whose link was since removed stays waitlisted, flagged, holding message', async () => {
+      const lead = await makeLead('WAITLISTED', { courseId: ids.course.id });
+      const at = new Date();
+      await db.waitlistOffer.create({
+        data: {
+          leadId: lead.id,
+          batchId: ids.batch.id,
+          offeredBy: 'test',
+          offeredAt: at,
+          expiresAt: new Date(at.getTime() + 3_600_000),
+        },
+      });
       await say(lead.phoneE164, { kind: 'button', id: 'book_seat', title: 'Book my seat' });
 
       expect(await leadRow(lead.id)).toMatchObject({ status: 'WAITLISTED', needsHuman: true });

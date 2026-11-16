@@ -27,6 +27,5 @@ export {
 } from './types';
 export { AddBatchButton, BatchActions, BatchFilterBar, BatchTable } from './components/BatchTable';
 export { CoursesTable } from './components/CoursesTable';
-export { SeatMeter } from './components/SeatMeter';
 export { ClassLink } from './components/ClassLink';
 export { batchSchedule, needsTrialLink } from './utils';

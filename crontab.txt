@@ -4,7 +4,7 @@
 
 # Job queue: webhooks, class links, messages, payment links (every minute)
 * * * * *    curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/jobs > /dev/null
-# Bot nudges: re-ask at 3 h / 22 h of silence, drop at 24 h (every 30 min)
+# Bot nudges: re-ask at 3 h / 22 h of silence, drop at 24 h. Also offers open batches to the waitlist (every 30 min)
 */30 * * * * curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/nudges > /dev/null
 # Trials: class reminders, payment links, last-day reminders (09:00 IST)
 0 9 * * *    curl -fsS -X POST -H "x-cron-secret: SECRET" https://DOMAIN/api/cron/trials > /dev/null

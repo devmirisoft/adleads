@@ -11,7 +11,7 @@ export {
   type LeadDetail,
   type LeadListItem,
 } from './services/queries';
-export { assignLeads, changeStatus, resolveLead, updateNotes } from './services/actions';
+export { assignLeads, changeStatus, resolveLead, setCalled, updateNotes } from './services/actions';
 export {
   canTransition,
   LEAD_STATUS,

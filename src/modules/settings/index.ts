@@ -1,5 +1,11 @@
 // Public API of this module — import from '@/modules/settings' only. App settings + staff users.
-export { getAllSettings, getSetting, updateSettings } from './services/settings';
+export {
+  getAllSettings,
+  getBotMessages,
+  getMessage,
+  getSetting,
+  updateSettings,
+} from './services/settings';
 export {
   createUser,
   listStaff,
@@ -11,6 +17,7 @@ export {
 } from './services/users';
 export {
   addUserAction,
+  saveBotMessageAction,
   saveSettingsAction,
   setUserActiveAction,
   setUserRoleAction,
@@ -23,5 +30,7 @@ export {
   type SettingKey,
   type SettingValue,
 } from './constants/keys';
+export type { BotMessageKey } from './constants/messages';
+export { BotMessageEditor } from './components/BotMessageEditor';
 export { SettingsForm } from './components/SettingsForm';
 export { UsersTable } from './components/UsersTable';

@@ -3,7 +3,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
-import { Button, FormField, Input, SectionCard, Textarea, toast } from '@/modules/core/components';
+import { Button, FormField, Input, SectionCard, toast } from '@/modules/core/components';
 import {
   settingsFormSchema,
   type AllSettings,
@@ -25,7 +25,6 @@ export function SettingsForm({ settings }: { settings: AllSettings }) {
       default_trial_days: settings.default_trial_days,
       reminder_days_before: settings.reminder_days_before,
       payment_link_expiry_hours: settings.payment_link_expiry_hours,
-      welcome_text: settings.welcome_text,
       first_nudge_hours: first,
       second_nudge_hours: second,
     },
@@ -91,56 +90,40 @@ export function SettingsForm({ settings }: { settings: AllSettings }) {
           </FormField>
         </div>
       </SectionCard>
-      <SectionCard title="Bot">
-        <div className="flex flex-col gap-4">
+      <SectionCard title="Bot" description="The bot's messages are edited on the Bot script page.">
+        <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            id="s-welcome"
-            label="Welcome message"
+            id="s-nudge1"
+            label="First reminder (hours of silence)"
             required
-            help="Sent before the first question"
-            error={errors.welcome_text?.message}
+            help="Leads stuck mid-questions get the question again"
+            error={errors.first_nudge_hours?.message}
           >
-            <Textarea
-              id="s-welcome"
-              rows={3}
-              aria-invalid={!!errors.welcome_text}
-              {...register('welcome_text')}
+            <Input
+              id="s-nudge1"
+              type="number"
+              min={1}
+              max={23}
+              aria-invalid={!!errors.first_nudge_hours}
+              {...register('first_nudge_hours', num)}
             />
           </FormField>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField
-              id="s-nudge1"
-              label="First reminder (hours of silence)"
-              required
-              help="Leads stuck mid-questions get the question again"
-              error={errors.first_nudge_hours?.message}
-            >
-              <Input
-                id="s-nudge1"
-                type="number"
-                min={1}
-                max={23}
-                aria-invalid={!!errors.first_nudge_hours}
-                {...register('first_nudge_hours', num)}
-              />
-            </FormField>
-            <FormField
+          <FormField
+            id="s-nudge2"
+            label="Second reminder (hours of silence)"
+            required
+            help="Under 24 — after that only templates are allowed"
+            error={errors.second_nudge_hours?.message}
+          >
+            <Input
               id="s-nudge2"
-              label="Second reminder (hours of silence)"
-              required
-              help="Under 24 — after that only templates are allowed"
-              error={errors.second_nudge_hours?.message}
-            >
-              <Input
-                id="s-nudge2"
-                type="number"
-                min={1}
-                max={23}
-                aria-invalid={!!errors.second_nudge_hours}
-                {...register('second_nudge_hours', num)}
-              />
-            </FormField>
-          </div>
+              type="number"
+              min={1}
+              max={23}
+              aria-invalid={!!errors.second_nudge_hours}
+              {...register('second_nudge_hours', num)}
+            />
+          </FormField>
         </div>
       </SectionCard>
       <div className="flex justify-end">

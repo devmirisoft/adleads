@@ -78,31 +78,28 @@ const BATCHES = {
     daysOfWeek: [1, 2, 3, 4, 5],
     startTime: '07:00',
     endTime: '08:00',
-    capacity: 20,
     trialLink: 'https://zoom.example/j/81000000001?for=trial',
     paidLink: 'https://zoom.example/j/81000000001?for=paid',
   },
   engEvening: {
-    // nearly full: 5 of 6 seats taken by the leads below
+    // 5 seats taken by the leads below
     id: '00000000-0000-4000-8000-000000000b02',
     courseId: COURSES.english.id,
     name: 'Evening Mon–Fri',
     daysOfWeek: [1, 2, 3, 4, 5],
     startTime: '19:00',
     endTime: '20:00',
-    capacity: 6,
     trialLink: 'https://zoom.example/j/81000000002?for=trial',
     paidLink: 'https://zoom.example/j/81000000002?for=paid',
   },
   pyWeekend: {
-    // FULL: 4 of 4 seats taken
+    // 4 seats taken
     id: '00000000-0000-4000-8000-000000000b03',
     courseId: COURSES.python.id,
     name: 'Weekend',
     daysOfWeek: [6, 7],
     startTime: '10:00',
     endTime: '12:00',
-    capacity: 4,
     trialLink: 'https://zoom.example/j/81000000003?for=trial',
     paidLink: 'https://zoom.example/j/81000000003?for=paid',
   },
@@ -113,7 +110,6 @@ const BATCHES = {
     daysOfWeek: [1, 3, 5],
     startTime: '18:30',
     endTime: '20:00',
-    capacity: 15,
     trialLink: 'https://zoom.example/j/81000000004?for=trial',
     paidLink: 'https://zoom.example/j/81000000004?for=paid',
   },
@@ -424,7 +420,7 @@ async function seedLeads(salesId: string) {
     if (spec.status === 'OPTED_OUT') msg('IN', { text: 'STOP' });
     if (spec.status === 'WAITLISTED') {
       msg('OUT', {
-        text: `Thanks ${firstName}! ${batch!.name} is full right now. We'll message you as soon as a seat opens.`,
+        text: `Thanks ${firstName}! There are currently no available seats in ${batch!.name}. Our team will follow up with you.`,
       });
     }
 
@@ -536,21 +532,13 @@ async function seedLeads(salesId: string) {
   }
 }
 
-/** Seed-only: seatsTaken = live (TRIAL/PAID) enrollments, OPEN/FULL follows it. The app uses assignSeat(). */
+/** Seed-only: seatsTaken = live (TRIAL/PAID) enrollments. The app uses assignSeat(). */
 async function syncSeats() {
-  for (const b of await db.batch.findMany({
-    where: { id: { in: Object.values(BATCHES).map((b) => b.id) } },
-  })) {
+  for (const b of Object.values(BATCHES)) {
     const taken = await db.enrollment.count({
       where: { batchId: b.id, status: { in: ['TRIAL', 'PAID'] } },
     });
-    await db.batch.update({
-      where: { id: b.id },
-      data: {
-        seatsTaken: taken,
-        status: b.status === 'CLOSED' ? 'CLOSED' : taken >= b.capacity ? 'FULL' : 'OPEN',
-      },
-    });
+    await db.batch.update({ where: { id: b.id }, data: { seatsTaken: taken } });
   }
 }
 

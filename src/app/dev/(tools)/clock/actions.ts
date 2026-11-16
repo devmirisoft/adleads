@@ -4,6 +4,7 @@ import { setDevNowOffsetDays } from '@/lib/clock';
 import { requireUser } from '@/modules/auth';
 import { runNudges } from '@/modules/bot';
 import type { ApiResult } from '@/modules/core/types';
+import { runWaitlistOffers } from '@/modules/enrollments';
 import { expireDueTrials, runTrialsCron } from '@/modules/payments';
 import { runJobsNow } from '../../../_jobs/handlers';
 
@@ -19,7 +20,10 @@ export async function runCronNow(name: CronName): Promise<ApiResult<string>> {
     let summary: string;
     if (name === 'nudges') {
       const r = await runNudges();
-      summary = `Nudged ${r.nudged}, dropped ${r.dropped}${failures(r.failed)}`;
+      const o = await runWaitlistOffers();
+      summary =
+        `Nudged ${r.nudged}, dropped ${r.dropped}${failures(r.failed)} · seat offers ${o.offered}, ` +
+        `expired ${o.expired}, staff flagged ${o.flagged}${failures(o.failed)}`;
     } else if (name === 'trials') {
       const r = await runTrialsCron();
       summary =

@@ -1,18 +1,34 @@
 import 'server-only';
+import Razorpay from 'razorpay';
+import { config } from '../config';
 import type { RazorpayClient } from './types';
 
-// TODO(live): Razorpay Payment Links, using config.RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET
-// (the `razorpay` npm package is already installed: new Razorpay({ key_id, key_secret })).
-//  - createPaymentLink: razorpay.paymentLink.create({
-//      amount: amountPaise, currency: "INR", reference_id: referenceId,
-//      customer: { name, contact, email }, notify: { sms: false, email: false },
-//      expire_by: Math.floor(expireBy.getTime() / 1000), reminder_enable: false })
-//    → { id, shortUrl: short_url }
-//  - expire_by must be ≥ 15 min ahead; reference_id must be unique per link.
-const notImplemented = (): never => {
-  throw new Error('Not implemented: live Razorpay adapter');
-};
-
 export const liveRazorpay: RazorpayClient = {
-  createPaymentLink: notImplemented,
+  async createPaymentLink({ amountPaise, referenceId, customer, expireBy }) {
+    // Built per call: this file is imported in fake mode too, where the keys are unset
+    // and the constructor would throw. Config guarantees both keys when INTEGRATIONS_MODE=live.
+    const rzp = new Razorpay({
+      key_id: config.RAZORPAY_KEY_ID!,
+      key_secret: config.RAZORPAY_KEY_SECRET!,
+    });
+    try {
+      const link = await rzp.paymentLink.create({
+        amount: amountPaise,
+        currency: 'INR',
+        reference_id: referenceId,
+        customer,
+        notify: { sms: false, email: false }, // we send the link on WhatsApp ourselves
+        expire_by: Math.floor(expireBy.getTime() / 1000), // Razorpay: at least 15 min ahead
+        reminder_enable: false,
+      });
+      return { id: link.id, shortUrl: link.short_url };
+    } catch (e) {
+      // The SDK rejects with a plain `{ statusCode, error: { description } }`, not an Error,
+      // so staff would only see the generic message without this.
+      const reason = (e as { error?: { description?: string } }).error?.description;
+      throw new Error(
+        `Razorpay couldn't create the payment link${reason ? `: ${reason}` : ''}. Try again, or record a manual payment.`,
+      );
+    }
+  },
 };

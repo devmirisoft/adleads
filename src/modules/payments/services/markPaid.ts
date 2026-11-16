@@ -88,20 +88,13 @@ export async function markPaid(input: MarkPaidInput): Promise<MarkPaidResult> {
         // Clears the trial link: the bot resends what's stored here, and that's no longer their link.
         data: { status: 'PAID', paidAt: new Date(), zoomJoinUrl: null, linkSentAt: null },
       });
-      const overbooked = wasExpired && (await reclaimSeat(tx, e.batchId));
+      if (wasExpired) await reclaimSeat(tx, e.batchId);
       await transition(
         e.leadId,
         'ENROLLED',
         { actor: input.actor, note: `Paid via ${input.method}` },
         tx,
       );
-      if (overbooked) {
-        await needsReview(
-          e.leadId,
-          `re-enrolled after expiry into ${e.batch.name}, which is now over capacity.`,
-          tx,
-        );
-      }
       // Outbox: what they're owed commits with the payment. A process killed after this loses
       // nothing, and its re-run stops at 'duplicate'. Never send directly from here.
       if (e.batch.paidLink) {

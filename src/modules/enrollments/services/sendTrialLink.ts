@@ -5,6 +5,7 @@ import type { LinkKind } from '@/modules/core/types';
 import { formatDate, formatDays, formatTime } from '@/modules/core/utils';
 import { enqueue } from '@/modules/jobs';
 import { OutsideWindowError, sendTemplate, sendText } from '@/modules/messaging';
+import { getMessage } from '@/modules/settings';
 
 export const firstName = (lead: { name: string | null; profileName: string | null }) =>
   (lead.name ?? lead.profileName ?? 'there').split(' ')[0];
@@ -71,10 +72,14 @@ export async function sendTrialLink(enrollmentId: string, { once = false } = {})
     );
   }
 
-  const when = classTime(e.batch);
+  const vars = { name: firstName(e.lead), batch: e.batch.name, when: classTime(e.batch), link };
   const text = onTrial
-    ? `You're booked, ${firstName(e.lead)}! Your free trial of ${e.batch.name} (${when}) runs ${formatDate(e.trialStart)} – ${formatDate(e.trialEnd)}.\n\nThis link is for your trial days: ${link}\n\nYou'll get your regular class link after payment.`
-    : `Here's your class link for ${e.batch.name} (${when}): ${link}`;
+    ? await getMessage('msg_trial_link', {
+        ...vars,
+        trial_start: formatDate(e.trialStart),
+        trial_end: formatDate(e.trialEnd),
+      })
+    : await getMessage('msg_paid_link', vars);
   await deliverLink(e, link, text);
 }
 
@@ -102,6 +107,6 @@ export async function sendNewLink(enrollmentId: string, kind: LinkKind) {
   await deliverLink(
     e,
     link,
-    `Hi ${firstName(e.lead)}, the link for your ${e.batch.name} classes has changed. Please use this one from now on: ${link}`,
+    await getMessage('msg_link_changed', { name: firstName(e.lead), batch: e.batch.name, link }),
   );
 }

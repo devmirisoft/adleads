@@ -49,7 +49,7 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
   let ids: Awaited<ReturnType<typeof seedBasics>>;
   beforeEach(async () => {
     await resetDb();
-    ids = await seedBasics({ capacity: 5 });
+    ids = await seedBasics();
   });
 
   it('happy path: Hi → name → course → batch → Confirm → trial link', async () => {
@@ -76,7 +76,7 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
       {
         id: ids.batch.id,
         title: 'Evening Mon–Fri',
-        description: 'Mon–Fri · 7:00 PM · 5 seats left',
+        description: 'Mon–Fri · 7:00 PM',
       },
     ]);
 
@@ -177,21 +177,70 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     expect((await lead()).needsHuman).toBe(true);
   });
 
-  it('invalid name: hint first, then hands over to a human', async () => {
+  it('invalid answers never stop the script: HELP hint from the 2nd miss, staff flagged quietly from the 3rd', async () => {
     await deliver(fixture('text_with_referral'));
     await say({ kind: 'text', text: 'x' });
     const hint = await lastOut();
     expect(hint.text).toMatch(/^Please reply with just your full name/);
+    expect(hint.text).not.toContain('HELP');
     expect(hint.retryStep).toBe(1);
-    expect((await lead()).needsHuman).toBe(false);
 
-    await say({ kind: 'text', text: '12345' });
-    expect((await lead()).needsHuman).toBe(true);
-    expect((await lastOut()).text).toContain('Someone from our team will reply');
+    for (const [text, flagged] of [
+      ['12345', false],
+      ['???', true],
+      ['Hi', true],
+    ] as const) {
+      await say({ kind: 'text', text });
+      const again = await lastOut();
+      expect(again.text).toMatch(/^Please reply with just your full name/);
+      expect(again.text).toContain('Reply HELP');
+      expect((await lead()).needsHuman).toBe(flagged);
+    }
+    // Flagged without telling the lead: every reply was a re-ask.
+    const outs = await db.message.findMany({
+      where: { lead: { phoneE164: PHONE }, direction: 'OUT' },
+    });
+    expect(JSON.stringify(outs)).not.toContain('Someone from our team');
 
-    // A valid name still continues the script.
     await say({ kind: 'text', text: 'Rahul Sharma' });
     expect((await lastOut()).button).toBe('Choose course');
+  });
+
+  it('typed answers work: course and batch by name or number, "ok" to confirm', async () => {
+    await startAndName();
+    await say({ kind: 'text', text: 'spoken english please' });
+    expect((await lastOut()).button).toBe('Choose batch');
+    await say({ kind: 'text', text: '1' });
+    expect((await lastOut()).buttons?.map((b) => b.id)).toEqual(['confirm', 'change']);
+    await say({ kind: 'text', text: 'ok' });
+    expect((await lead()).status).toBe('TRIAL_ACTIVE');
+  });
+
+  it('CHANGE BATCH goes back to the batch list, keeping the course', async () => {
+    await startAndName();
+    await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
+    await say({ kind: 'list', id: ids.batch.id, title: 'Evening Mon–Fri' });
+    await say({ kind: 'text', text: 'change batch' });
+    const out = await lastOut();
+    expect(out.button).toBe('Choose batch');
+    expect(out.text).toMatch(/^No problem, let’s change that/);
+  });
+
+  it('a flagged lead still gets an answer, but the bot never talks over staff', async () => {
+    await startAndName();
+    const { id } = await lead();
+    await db.lead.update({ where: { id }, data: { needsHuman: true } }); // flagged for another reason
+    await say({ kind: 'text', text: 'HELP' });
+    expect((await lastOut()).text).toContain('Someone from our team will reply');
+
+    // A burst of messages gets one reply.
+    const n = await outCount();
+    await say({ kind: 'text', text: 'help' });
+    expect(await outCount()).toBe(n);
+
+    await sendText(id, 'Hi Rahul, Priya here.', { sentBy: 'staff-user-id' });
+    await say({ kind: 'text', text: 'HELP' });
+    expect((await lastOut()).text).toBe('Hi Rahul, Priya here.');
   });
 
   it('Change at confirm loops back to the course list', async () => {
@@ -220,14 +269,138 @@ describe.skipIf(!hasTestDb)('bot engine', () => {
     expect(await db.message.count({ where: { leadId: l.id, direction: 'IN' } })).toBe(4); // still logged
   });
 
-  it('no free batch → WAITLISTED with a waitlist message', async () => {
-    await db.batch.update({ where: { id: ids.batch.id }, data: { status: 'CLOSED' } });
-    await startAndName();
-    await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
-    const l = await lead();
-    expect(l.status).toBe('WAITLISTED');
-    expect((await lastOut()).text).toContain("You're on the waitlist");
-    const trail = await db.leadEvent.findMany({ where: { leadId: l.id }, orderBy: { id: 'asc' } });
-    expect(trail.map((e) => e.toStatus)).toEqual(['NEW', 'ASKING', 'QUALIFIED', 'WAITLISTED']);
+  describe('which courses are offered', () => {
+    /** A second course with one batch, so hiding the first still leaves a list to look at. */
+    async function otherCourse() {
+      const course = await db.course.create({
+        data: { name: 'Python Basics', description: 'Start coding', feePaise: 100, sortOrder: 2 },
+      });
+      const row = await db.batch.create({
+        data: {
+          courseId: course.id,
+          name: 'Python Weekend',
+          daysOfWeek: [6, 7],
+          startTime: '10:00',
+          endTime: '11:00',
+          startDate: new Date('2026-01-01'),
+          endDate: new Date('2099-12-31'),
+          trialLink: 'https://zoom.example/j/py',
+        },
+      });
+      return { course, batch: row };
+    }
+    /** Seats are unlimited, so only this waitlists: the batch closes while the lead is picking. */
+    async function batchClosesMidPick(batchId: string) {
+      await db.batch.update({ where: { id: batchId }, data: { status: 'CLOSED' } });
+      await say({ kind: 'text', text: 'hmm' }); // not a pick → the batch list is asked again
+    }
+
+    it('a batch that closes while the lead is picking waitlists them and flags staff', async () => {
+      await startAndName();
+      await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
+      await batchClosesMidPick(ids.batch.id);
+
+      const l = await lead();
+      expect(l).toMatchObject({ status: 'WAITLISTED', needsHuman: true, currentStep: null });
+      const { text } = await lastOut();
+      expect(text).toContain(
+        'There are currently no available seats in Spoken English. Our team will follow up with you.',
+      );
+      expect(text).not.toContain('as soon as a seat opens');
+      const trail = await db.leadEvent.findMany({
+        where: { leadId: l.id },
+        orderBy: { id: 'asc' },
+      });
+      expect(trail.map((e) => e.toStatus)).toEqual(['NEW', 'ASKING', 'QUALIFIED', 'WAITLISTED']);
+    });
+
+    it.each([
+      ['closed', { status: 'CLOSED' as const }],
+      ['ended', { endDate: new Date('2020-01-01') }],
+    ])('a course whose only batch is %s is hidden', async (_name, change) => {
+      await db.batch.update({ where: { id: ids.batch.id }, data: change });
+      await otherCourse();
+      await startAndName();
+      const list = JSON.stringify(await lastOut());
+      expect(list).toContain('Python Basics');
+      expect(list).not.toContain('Spoken English');
+    });
+
+    it('a course with no batches is hidden', async () => {
+      const empty = await db.course.create({
+        data: { name: 'No Batches', description: 'Nothing yet', feePaise: 100, sortOrder: 3 },
+      });
+      await startAndName();
+      expect(JSON.stringify(await lastOut())).not.toContain('No Batches');
+
+      // A tap on an old list can't reach it either.
+      await say({ kind: 'list', id: empty.id, title: empty.name });
+      expect(await lead()).toMatchObject({ status: 'ASKING', courseId: null });
+    });
+
+    it('a waitlisted lead keeps getting answers and can CHANGE to another course', async () => {
+      const python = await otherCourse();
+      await startAndName();
+      await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
+      await batchClosesMidPick(ids.batch.id);
+      const { id } = await lead();
+      expect(await lead()).toMatchObject({ status: 'WAITLISTED', needsHuman: true });
+      const offer = await db.waitlistOffer.create({
+        data: {
+          leadId: id,
+          batchId: ids.batch.id,
+          offeredBy: 'test',
+          offeredAt: new Date(),
+          expiresAt: new Date('2099-01-01'),
+        },
+      });
+
+      // Already flagged, yet still answered — once per burst.
+      await say({ kind: 'text', text: 'hello?' });
+      expect((await lastOut()).text).toContain("You're on our waitlist");
+      expect((await lastOut()).text).toContain('Reply CHANGE');
+      const n = await outCount();
+      await say({ kind: 'text', text: 'ok' });
+      expect(await outCount()).toBe(n);
+
+      await say({ kind: 'text', text: 'Change' });
+      expect(await lead()).toMatchObject({ status: 'ASKING', needsHuman: false, currentStep: 2 });
+      expect((await lastOut()).button).toBe('Choose course');
+      // The old seat offer can't book Spoken English later.
+      expect(await db.waitlistOffer.findUniqueOrThrow({ where: { id: offer.id } })).toMatchObject({
+        status: 'CANCELLED',
+      });
+
+      await say({ kind: 'text', text: 'python' });
+      await say({ kind: 'text', text: 'Python Weekend' });
+      await say({ kind: 'button', id: 'confirm', title: 'Confirm' });
+      expect(await lead()).toMatchObject({ status: 'TRIAL_ACTIVE', courseId: python.course.id });
+    });
+
+    it('with nothing to list at all, the lead goes to staff', async () => {
+      await db.batch.update({ where: { id: ids.batch.id }, data: { status: 'CLOSED' } });
+      await startAndName();
+      expect(await lead()).toMatchObject({ status: 'ASKING', needsHuman: true });
+    });
+
+    it('changing course drops the old batch, so "yes" can never book the wrong course', async () => {
+      const python = await otherCourse();
+      await startAndName();
+      await say({ kind: 'list', id: ids.course.id, title: 'Spoken English' });
+      await say({ kind: 'list', id: ids.batch.id, title: 'Evening Mon–Fri' });
+      await say({ kind: 'button', id: 'change', title: 'Change' });
+      await say({ kind: 'list', id: python.course.id, title: 'Python Basics' });
+      await batchClosesMidPick(python.batch.id);
+
+      const l = await lead();
+      expect(l).toMatchObject({ status: 'WAITLISTED', courseId: python.course.id });
+      expect(await db.answer.count({ where: { leadId: l.id, questionKey: 'batch' } })).toBe(0);
+
+      await say({ kind: 'text', text: 'yes' });
+
+      expect(await lead()).toMatchObject({ status: 'WAITLISTED', courseId: python.course.id });
+      expect(await db.enrollment.count()).toBe(0);
+      expect((await lastOut()).text).toContain("we don't have a seat held for you");
+    });
   });
 });

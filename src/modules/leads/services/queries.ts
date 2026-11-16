@@ -3,6 +3,7 @@ import { Prisma } from '@/generated/prisma/client';
 import { db } from '@/lib/db';
 import type { Paginated } from '@/modules/core/types';
 import type { LeadFilters } from '../types';
+import { ageRange } from '../utils';
 
 /** IST calendar day "2026-10-14" → the UTC instant it starts. */
 const istStart = (ymd: string) => new Date(`${ymd}T00:00:00+05:30`);
@@ -58,6 +59,7 @@ export async function exportLeadsCsv(f: LeadFilters): Promise<string> {
     'Ad',
     'Needs human',
     'Assigned to',
+    'Called',
     'Created (UTC)',
   ];
   const rows = leads.map((l) => [
@@ -70,6 +72,7 @@ export async function exportLeadsCsv(f: LeadFilters): Promise<string> {
     l.adName,
     l.needsHuman ? 'yes' : 'no',
     l.assignedTo?.name,
+    l.calledAt ? 'yes' : 'no',
     l.createdAt,
   ]);
   return [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\n');
@@ -89,6 +92,8 @@ function leadWhere(f: LeadFilters): Prisma.LeadWhereInput {
     ...(f.batchId && { enrollments: { some: { batchId: f.batchId } } }),
     ...(f.source && { source: f.source }),
     ...(f.needsHuman && { needsHuman: true }),
+    // AND, so it combines with the from/to createdAt range below. createdAt is real time, not the dev clock.
+    ...(f.age && { AND: [{ createdAt: ageRange(f.age, new Date()) }] }),
     ...((f.from || f.to) && {
       createdAt: {
         ...(f.from && { gte: istStart(f.from) }),

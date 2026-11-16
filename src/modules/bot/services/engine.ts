@@ -4,7 +4,14 @@ import { now } from '@/lib/clock';
 import { paymentLinksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { publishInboxChanged } from '@/lib/realtime/client';
-import { assignSeat, trialLinkAvailable } from '@/modules/enrollments';
+import {
+  assignSeat,
+  currentOffer,
+  firstName,
+  leaveWaitlist,
+  trialLinkAvailable,
+  type AssignResult,
+} from '@/modules/enrollments';
 import { canTransition, transition, upsertLead } from '@/modules/leads';
 import {
   hasMessage,
@@ -14,9 +21,10 @@ import {
   type InboundMessage,
   type MessageBody,
 } from '@/modules/messaging';
-import { getSetting } from '@/modules/settings';
+import { getMessage } from '@/modules/settings';
 import type { AskOptions, BotStep, StepContext, StepKey } from '../types';
-import { handOver, isUuid, replyOf } from './shared';
+import { replyOf } from '../utils';
+import { CHANGE_HINT, handOver, isUuid } from './shared';
 import { batchStep } from './steps/batch';
 import { confirmStep } from './steps/confirm';
 import { courseStep } from './steps/course';
@@ -60,7 +68,7 @@ export async function handleInbound(msg: InboundMessage): Promise<void> {
   switch (lead.status) {
     case 'NEW':
       await transition(lead.id, 'ASKING', { actor: 'bot' });
-      return startScript(await reload(lead.id), { prefix: await getSetting('welcome_text') });
+      return startScript(await reload(lead.id), { prefix: await getMessage('welcome_text') });
     case 'DROPPED':
       // They came back: resume where they stopped, treating this message as the answer.
       await transition(lead.id, 'ASKING', { actor: 'bot', note: 'Lead replied' });
@@ -69,6 +77,8 @@ export async function handleInbound(msg: InboundMessage): Promise<void> {
       return answerStep(lead, msg);
     case 'WAITLISTED':
       return waitlisted(lead, msg);
+    case 'QUALIFIED':
+      return handOver(lead, await getMessage('msg_link_coming'));
     default:
       return contextualReply(lead, msg);
   }
@@ -99,13 +109,39 @@ async function handleKeyword(lead: Lead, msg: InboundMessage): Promise<boolean> 
     await handOver(lead);
     return true;
   }
-  if (word === 'RESTART' && ['NEW', 'ASKING', 'DROPPED'].includes(lead.status)) {
-    if (lead.status !== 'ASKING')
-      await transition(lead.id, 'ASKING', { actor: 'bot', note: 'RESTART' });
-    await startScript(await reload(lead.id), { prefix: 'No problem, let’s start again.' });
+  const back = GO_BACK[word];
+  if (back && CAN_GO_BACK.includes(lead.status)) {
+    await goBack(lead, back, word);
     return true;
   }
   return false;
+}
+
+/** Typed words that take the lead back to a question. */
+const GO_BACK: Partial<Record<string, StepKey>> = {
+  RESTART: 'name',
+  'CHANGE NAME': 'name',
+  CHANGE: 'course',
+  'CHANGE COURSE': 'course',
+  'CHANGE BATCH': 'batch',
+};
+/** Nothing booked yet: the lead can still change their answers. */
+const CAN_GO_BACK: Lead['status'][] = ['NEW', 'ASKING', 'DROPPED', 'QUALIFIED', 'WAITLISTED'];
+
+async function goBack(lead: Lead, step: StepKey, word: string) {
+  const opts = { actor: 'bot', note: `Sent ${word}` };
+  if (lead.status === 'WAITLISTED') await leaveWaitlist(lead.id, opts);
+  else if (lead.status !== 'ASKING') await transition(lead.id, 'ASKING', opts);
+
+  // Earlier answers first: no batch list without a course, no course without a name.
+  const key = step === 'batch' && !lead.courseId ? 'course' : step;
+  const script = await loadScript();
+  const question =
+    script.find((q) => q.key === (key === 'course' && !lead.name ? 'name' : key)) ?? script[0];
+  if (!question) return handOver(lead);
+  await askQuestion(await reload(lead.id), question, {
+    prefix: word === 'RESTART' ? 'No problem, let’s start again.' : 'No problem, let’s change that.',
+  });
 }
 
 // ─── Question flow ───────────────────────────────────────────────────────────
@@ -147,24 +183,30 @@ async function answerStep(lead: Lead, msg: InboundMessage) {
       return target ? askQuestion(fresh, target) : handOver(fresh);
     }
     case 'retry': {
-      // Second invalid answer in a row to the same question → a human takes over.
-      const lastOut = await db.message.findFirst({
+      // Never give up mid-script: re-ask with the hint. From the 2nd miss in a row it offers HELP;
+      // from the 3rd, staff are flagged quietly so a stuck lead shows up in the inbox.
+      const recent = await db.message.findMany({
         where: { leadId: lead.id, direction: 'OUT' },
         orderBy: { createdAt: 'desc' },
+        take: 2,
+        select: { body: true },
       });
-      if ((lastOut?.body as MessageBody | null)?.retryStep === question.step)
-        return handOver(fresh);
-      return askQuestion(fresh, question, { prefix: res.reason, retry: true });
+      const streak = recent.findIndex(
+        (m) => (m.body as MessageBody | null)?.retryStep !== question.step,
+      );
+      const misses = 1 + (streak === -1 ? recent.length : streak); // this one included
+      if (misses >= 3 && !fresh.needsHuman) {
+        // No message to the lead; the re-ask below publishes the inbox change.
+        await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
+      }
+      return askQuestion(fresh, question, {
+        prefix: misses >= 2 ? `${res.reason}\n\n${await getMessage('msg_stuck')}` : res.reason,
+        retry: true,
+      });
     }
     case 'done':
       return;
   }
-}
-
-/** The batch has no trial link yet: no seat and no trial clock. Staff add it and book the seat. */
-async function handOverBooking(lead: Lead) {
-  await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
-  await sendText(lead.id, 'Our team will send your class link shortly.', { sentBy: 'bot' });
 }
 
 async function canBook(batchId: string) {
@@ -181,41 +223,47 @@ async function finishScript(lead: Lead) {
   if (!isUuid(batch?.answerValue)) return handOver(lead);
 
   await transition(lead.id, 'QUALIFIED', { actor: 'bot' });
-  if (!(await canBook(batch.answerValue))) return handOverBooking(lead);
-  const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
-  if (result.result === 'waitlisted') {
-    await sendText(
-      lead.id,
-      `Sorry, ${batch.answerLabel} filled up just now. You're on the waitlist — we'll message you here as soon as a seat opens.`,
-      { sentBy: 'bot' },
-    );
-  } else {
-    await sendText(lead.id, 'Great, your seat is booked! Your class link is on its way.', {
-      sentBy: 'bot',
-    });
+  // No trial link on the batch yet: no seat and no trial clock. Staff add the link and book.
+  if (!(await canBook(batch.answerValue))) {
+    return handOver(lead, await getMessage('msg_link_coming'));
   }
+  const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
+  await replyToBooking(lead, result, batch.answerLabel);
+}
+
+/** Booked, no seat, or the lead already had their one free trial (the chat goes to staff). */
+async function replyToBooking(lead: Lead, result: AssignResult, batch: string) {
+  if (result.result === 'trialUsed') return handOver(lead, await getMessage('msg_trial_used'));
+  const text =
+    result.result === 'trial'
+      ? await getMessage('msg_seat_booked', { name: firstName(lead), batch })
+      : await getMessage('msg_no_seats', { where: batch });
+  await sendText(lead.id, text, { sentBy: 'bot' });
 }
 
 // ─── Other statuses ──────────────────────────────────────────────────────────
 
-/** A waitlisted lead replying "yes" / tapping "Book my seat" gets the seat if one is free. */
+/**
+ * A waitlisted lead replying "yes" / tapping "Book my seat" books the seat offered to them. Only an
+ * open offer can be booked, so a late or typed reply can't jump the queue or use an old batch answer.
+ */
 async function waitlisted(lead: Lead, msg: InboundMessage) {
   const wantsSeat = ['book_seat', 'yes', 'y', 'book'].includes(replyOf(msg));
-  if (!wantsSeat) return handOver(lead);
+  if (!wantsSeat) return handOver(lead, await getMessage('msg_waitlist'));
 
-  const batch = await db.answer.findUnique({
-    where: { leadId_questionKey: { leadId: lead.id, questionKey: 'batch' } },
-  });
-  if (!isUuid(batch?.answerValue)) return handOver(lead);
-  if (!(await canBook(batch.answerValue))) return handOverBooking(lead);
-  const result = await assignSeat(lead.id, batch.answerValue, { actor: 'bot' });
-  await sendText(
-    lead.id,
-    result.result === 'trial'
-      ? 'Great, your seat is booked! Your class link is on its way.'
-      : `Sorry, ${batch.answerLabel} is still full. We'll message you as soon as a seat opens.`,
-    { sentBy: 'bot' },
-  );
+  const offer = await currentOffer(lead.id);
+  if (!offer) {
+    await db.lead.update({ where: { id: lead.id }, data: { needsHuman: true } });
+    await sendText(
+      lead.id,
+      `Sorry, we don't have a seat held for you right now. Our team will follow up with you.\n\n${CHANGE_HINT}`,
+      { sentBy: 'bot' },
+    );
+    return;
+  }
+  if (!(await canBook(offer.batchId))) return handOver(lead, await getMessage('msg_link_coming'));
+  const result = await assignSeat(lead.id, offer.batchId, { actor: 'bot' });
+  await replyToBooking(lead, result, offer.batch.name);
 }
 
 /** Trial/paid/expired leads: answer "link?"-type questions, hand everything else to staff. */

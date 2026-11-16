@@ -44,6 +44,11 @@
   --color-danger: var(--danger);
   --color-read: var(--read);
   --color-destructive: var(--destructive);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
 
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -75,6 +80,13 @@
   --warning: #d97706;
   --danger: #dc2626;
   --read: #0284c7; /* blue ticks: a read WhatsApp message */
+  /* Chart series, used in this order (colorblind-checked as a set). Some sit below 3:1 on
+     white, so charts always print each slice's label and value beside the colour. */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
   --radius: 0.5rem;
 
   /* Aliases the shadcn primitives expect. */

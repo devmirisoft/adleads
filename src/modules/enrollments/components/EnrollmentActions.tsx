@@ -174,9 +174,7 @@ function MoveBatchDialog({
           </DialogDescription>
         </DialogHeader>
         {options.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No other batch of this course has free seats.
-          </p>
+          <p className="text-sm text-muted-foreground">No other batch of this course is open.</p>
         ) : (
           <FormField id="move-batch" label="New batch" required>
             <Select value={batchId} onValueChange={setBatchId}>
@@ -186,7 +184,7 @@ function MoveBatchDialog({
               <SelectContent>
                 {options.map((b) => (
                   <SelectItem key={b.id} value={b.id}>
-                    {b.name} · {b.seatsLeft} seat{b.seatsLeft === 1 ? '' : 's'} left
+                    {b.name}
                   </SelectItem>
                 ))}
               </SelectContent>

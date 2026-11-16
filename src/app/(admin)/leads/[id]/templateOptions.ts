@@ -13,7 +13,6 @@ export function templateOptions(lead: LeadDetail): TemplateOption[] {
   const e = lead.enrollments[0];
   const live = e && (e.status === 'TRIAL' || e.status === 'PAID');
   const pay = e?.payments.find((p) => p.status === 'CREATED' && p.razorpayLinkUrl);
-  const batchAnswer = lead.answers.find((a) => a.questionKey === 'batch');
 
   const vars: Partial<Record<TemplateName, Record<string, string>>> = {
     ...(live &&
@@ -40,10 +39,7 @@ export function templateOptions(lead: LeadDetail): TemplateOption[] {
         enrollment_confirmed: { name, batch: e.batch.name, joinUrl: e.zoomJoinUrl },
       }),
     ...(e?.status === 'EXPIRED' && { trial_ended: { name } }),
-    ...(lead.status === 'WAITLISTED' &&
-      batchAnswer && {
-        waitlist_seat_open: { name, batch: batchAnswer.answerLabel },
-      }),
+    // Not waitlist_seat_open: without a held seat its button can't book anything. Use "Offer seat".
   };
 
   return (Object.entries(vars) as [TemplateName, Record<string, string>][]).map(([t, v]) => ({

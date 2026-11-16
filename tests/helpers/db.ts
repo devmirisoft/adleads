@@ -5,6 +5,7 @@ import type { LeadStatus } from '@/modules/leads';
 export const hasTestDb = !!process.env.TEST_DATABASE_URL;
 
 const TABLES = [
+  'waitlist_offers',
   'lead_events',
   'answers',
   'messages',
@@ -39,10 +40,9 @@ const uniquePhone = () => `+9197${String(++n).padStart(8, '0')}`;
 
 /** One course, one batch (with links, unless `links: false`), the 4 bot questions and default settings. */
 export async function seedBasics({
-  capacity = 5,
   trialDays = 3,
   links = true,
-}: { capacity?: number; trialDays?: number; links?: boolean } = {}) {
+}: { trialDays?: number; links?: boolean } = {}) {
   const course = await db.course.create({
     data: {
       name: 'Spoken English',
@@ -61,7 +61,6 @@ export async function seedBasics({
       endTime: '20:00',
       startDate: new Date('2026-01-01'),
       endDate: new Date('2099-12-31'),
-      capacity,
       zoomHostUser: 'host@zoom.example',
       trialLink: links ? TRIAL_LINK : null,
       paidLink: links ? PAID_LINK : null,

@@ -59,8 +59,8 @@ These pages exist only when `NODE_ENV !== 'production'` and need you to be signe
   `trial_payment_reminder`. **Pay now** sends a correctly signed `payment_link.paid` webhook to
   `/api/webhooks/razorpay` → the lead becomes ENROLLED. **Fail payment** leaves the link open.
 - **`/dev/clock`** — run any cron job now, and **shift time by N days** to test trials:
-  shift 2 days → **Run trials** (payment link sent) → **Run expire** → the trial is EXPIRED and the
-  seat offered to the waitlist. **Reset** puts the clock back.
+  shift 2 days → **Run trials** (payment link sent) → **Run expire** → the trial is EXPIRED and its
+  seat is freed. **Reset** puts the clock back.
 
 Typical run: `/dev/whatsapp` "Hi" → name → course → batch → Confirm → you get the trial link →
 `/dev/clock` shift 2 days → Run trials → open the payment link → Pay now → ENROLLED.

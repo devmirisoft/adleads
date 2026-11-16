@@ -34,7 +34,11 @@ export async function transition(
     // Guard on the status we read, so a concurrent change can't be silently overwritten.
     const { count } = await t.lead.updateMany({
       where: { id: leadId, status: from },
-      data: { status: to, ...(to === 'OPTED_OUT' && { optedOutAt: new Date() }) },
+      data: {
+        status: to,
+        ...(to === 'OPTED_OUT' && { optedOutAt: new Date() }),
+        ...(to === 'WAITLISTED' && { needsHuman: true }), // staff own the follow-up
+      },
     });
     if (count === 0) throw new Error(`Lead ${leadId} changed status while moving to ${to}; retry`);
     await t.leadEvent.create({ data: { leadId, fromStatus: from, toStatus: to, actor, note } });

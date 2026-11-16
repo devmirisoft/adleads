@@ -1,3 +1,4 @@
+import { paymentLinksAreFake } from '@/lib/config';
 import { CAN_ACT, requireUser } from '@/modules/auth';
 import { listAllBatches } from '@/modules/batches';
 import { PageHeader } from '@/modules/core/components';
@@ -34,7 +35,7 @@ export default async function EnrollmentsPage({ searchParams }: PageProps<'/enro
         today={today}
         batches={openBatches}
         canAct={CAN_ACT.includes(user.role)}
-        requestPayment={requestPaymentAction}
+        requestPayment={paymentLinksAreFake() ? undefined : requestPaymentAction}
       />
     </>
   );
