@@ -1,9 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { BookOpen, Loader2, MoreHorizontal, Plus } from 'lucide-react';
+import {
+  BookOpen,
+  Bot,
+  CalendarDays,
+  Clock,
+  IndianRupee,
+  Link2,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import {
   Button,
   ConfirmDialog,
@@ -18,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   EmptyState,
+  FormActions,
   FormField,
   Input,
   Label,
@@ -56,9 +68,12 @@ function CourseFormDialog({
           trialDays: course.trialDays,
           sortOrder: course.sortOrder,
           isActive: course.isActive,
+          links: course.links.map((url) => ({ url })),
+          linkIntervalDays: course.linkIntervalDays,
         }
-      : { trialDays: null, sortOrder: 0, isActive: true },
+      : { trialDays: null, sortOrder: 0, isActive: true, links: [], linkIntervalDays: 1 },
   });
+  const { fields, append, remove } = useFieldArray({ control, name: 'links' });
 
   async function onSubmit(values: CourseInput) {
     const res = await saveCourseAction(course?.id ?? null, values);
@@ -70,7 +85,7 @@ function CourseFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-svh overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{course ? `Edit ${course.name}` : 'Add course'}</DialogTitle>
           <DialogDescription>Active courses appear in the bot’s course list.</DialogDescription>
@@ -143,6 +158,71 @@ function CourseFormDialog({
               />
             </FormField>
           </div>
+          <fieldset className="flex flex-col gap-4">
+            <legend className="mb-1 text-sm font-medium">Links</legend>
+            <p className="text-xs text-muted-foreground">
+              Sent to each lead one at a time on WhatsApp: link 1 on the first day of their trial,
+              then the next one every few days. Unpaid trials get a payment reminder after the last
+              link.
+            </p>
+            <FormField
+              id="c-interval"
+              label="Send a link every (days)"
+              required
+              help="1 = daily"
+              error={errors.linkIntervalDays?.message}
+            >
+              <Input
+                id="c-interval"
+                type="number"
+                min={1}
+                max={30}
+                className="w-24"
+                aria-invalid={!!errors.linkIntervalDays}
+                {...register('linkIntervalDays', { valueAsNumber: true })}
+              />
+            </FormField>
+            {fields.map((f, i) => (
+              <FormField
+                key={f.id}
+                id={`c-link-${i}`}
+                label={`Link ${i + 1}`}
+                required
+                error={errors.links?.[i]?.url?.message}
+              >
+                <div className="flex gap-2">
+                  <Input
+                    id={`c-link-${i}`}
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://"
+                    aria-invalid={!!errors.links?.[i]?.url}
+                    {...register(`links.${i}.url`)}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remove link ${i + 1}`}
+                    onClick={() => remove(i)}
+                  >
+                    <Trash2 className="size-5" />
+                  </Button>
+                </div>
+              </FormField>
+            ))}
+            {errors.links?.message && (
+              <p className="text-xs text-danger" role="alert">
+                {errors.links.message}
+              </p>
+            )}
+            <div>
+              <Button type="button" variant="outline" onClick={() => append({ url: '' })}>
+                <Plus className="size-4" aria-hidden />
+                Add link
+              </Button>
+            </div>
+          </fieldset>
           <Controller
             control={control}
             name="isActive"
@@ -210,6 +290,12 @@ function RowActions({ course }: { course: CourseListItem }) {
   );
 }
 
+/** "No links" · "1 link, daily" · "12 links, every 2 days". */
+const linksLabel = ({ links, linkIntervalDays: d }: CourseListItem) =>
+  links.length === 0
+    ? 'No links'
+    : `${links.length} link${links.length === 1 ? '' : 's'}, ${d === 1 ? 'daily' : `every ${d} days`}`;
+
 const columns: DataTableColumn<CourseListItem>[] = [
   {
     id: 'name',
@@ -224,6 +310,7 @@ const columns: DataTableColumn<CourseListItem>[] = [
   { id: 'fee', header: 'Fee', cell: ({ row }) => <Money paise={row.original.feePaise} /> },
   { id: 'trial', header: 'Trial days', cell: ({ row }) => row.original.trialDays ?? 'Default' },
   { id: 'batches', header: 'Batches', cell: ({ row }) => row.original._count.batches },
+  { id: 'links', header: 'Links', cell: ({ row }) => linksLabel(row.original) },
   { id: 'active', header: 'In bot', cell: ({ row }) => (row.original.isActive ? 'Yes' : 'No') },
   {
     id: 'actions',
@@ -237,18 +324,38 @@ export function CoursesTable({ courses }: { courses: CourseListItem[] }) {
   const [adding, setAdding] = useState(false);
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      <FormActions>
         <Button onClick={() => setAdding(true)}>
           <Plus className="size-4" aria-hidden />
           Add course
         </Button>
-      </div>
+      </FormActions>
       <DataTable
         columns={columns}
         data={courses}
         total={courses.length}
         page={1}
         pageSize={Math.max(courses.length, 1)}
+        card={(c) => ({
+          title: c.name,
+          subtitle: c.description ? (
+            <span className="text-muted-foreground">{c.description}</span>
+          ) : undefined,
+          actions: <RowActions course={c} />,
+          meta: [
+            { icon: IndianRupee, label: <Money paise={c.feePaise} /> },
+            {
+              icon: Clock,
+              label: `Trial: ${c.trialDays != null ? `${c.trialDays} days` : 'default length'}`,
+            },
+            {
+              icon: CalendarDays,
+              label: `${c._count.batches} batch${c._count.batches === 1 ? '' : 'es'}`,
+            },
+            { icon: Link2, label: linksLabel(c) },
+            { icon: Bot, label: c.isActive ? 'Offered by the bot' : 'Not offered by the bot' },
+          ],
+        })}
         emptyState={
           <EmptyState
             icon={BookOpen}

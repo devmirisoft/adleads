@@ -4,14 +4,14 @@ import type { ApiResult, LinkKind } from '@/modules/core/types';
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use 24-hour HH:mm, e.g. 19:00');
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a date');
 const blank = (v: unknown) => (v === '' ? undefined : v);
+const isHttpsUrl = (v: string) => /^https:\/\/\S+$/.test(v) && URL.canParse(v);
+const PASTE_HTTPS = 'Paste the full link, starting with https://';
 /** Optional, and pasted into WhatsApp messages: a real https:// URL with no spaces. Blank = none yet. */
 const classLink = z
   .string()
   .trim()
   .max(500, 'Keep it under 500 characters')
-  .refine((v) => v === '' || (/^https:\/\/\S+$/.test(v) && URL.canParse(v)), {
-    message: 'Paste the full link, starting with https://',
-  })
+  .refine((v) => v === '' || isHttpsUrl(v), { message: PASTE_HTTPS })
   .optional();
 
 /** Shared by the batch form and the create/update services. Dates are IST calendar dates. */
@@ -61,6 +61,23 @@ export const courseInputSchema = z.object({
   trialDays: z.number().int('Whole days only').min(1).max(30).nullable(),
   sortOrder: z.number('Enter a number').int('Whole numbers only').min(0).max(999),
   isActive: z.boolean(),
+  /** Objects, not strings: react-hook-form's useFieldArray needs them. The service stores the urls. */
+  links: z
+    .array(
+      z.object({
+        url: z
+          .string()
+          .trim()
+          .max(500, 'Keep it under 500 characters')
+          .refine(isHttpsUrl, PASTE_HTTPS),
+      }),
+    )
+    .max(400, 'At most 400 links'),
+  linkIntervalDays: z
+    .number('Enter a number')
+    .int('Whole days only')
+    .min(1, 'At least 1')
+    .max(30, 'At most 30'),
 });
 export type CourseInput = z.infer<typeof courseInputSchema>;
 

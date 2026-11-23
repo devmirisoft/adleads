@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { CreditCard, MoreHorizontal } from 'lucide-react';
+import { CalendarDays, CreditCard, IndianRupee, MoreHorizontal, Wallet } from 'lucide-react';
 import {
   Button,
   ConfirmDialog,
@@ -156,6 +156,22 @@ export function PaymentsTable({ data, total, page, pageSize, canAct }: Props) {
       page={page}
       pageSize={pageSize}
       onRowHref={(p) => `/leads/${p.enrollment.lead.id}`}
+      card={(p) => ({
+        title: leadName(p),
+        subtitle: <span className="text-muted-foreground">{p.enrollment.batch.name}</span>,
+        badge: <StatusBadge status={p.status} />,
+        actions: canAct ? <RowActions payment={p} /> : undefined,
+        meta: [
+          { icon: IndianRupee, label: <Money paise={p.amountPaise} /> },
+          {
+            icon: Wallet,
+            label: p.recordedBy
+              ? `${METHOD_LABEL[p.method]} · by ${p.recordedBy.name}`
+              : METHOD_LABEL[p.method],
+          },
+          { icon: CalendarDays, label: <DateTime value={p.paidAt ?? p.createdAt} /> },
+        ],
+      })}
       emptyState={
         <EmptyState
           icon={CreditCard}

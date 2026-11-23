@@ -9,6 +9,7 @@ export {
   trialLinkAvailable,
 } from './services/sendTrialLink';
 export { cancel } from './services/cancel';
+export { linkIndexForDay, sendCourseLinks } from './services/courseLinks';
 export { expire } from './services/expire';
 export { extendTrial, queueEnrollmentConfirmed, sendClassReminders } from './services/trial';
 export { leaveWaitlist, offerSeat, runWaitlistOffers } from './services/waitlistOffers';

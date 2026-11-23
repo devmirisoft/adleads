@@ -50,6 +50,7 @@ export default async function ScriptPage() {
           ))}
           {message('msg_seat_booked')}
           {message('msg_trial_link')}
+          {message('msg_invite')}
           {message('msg_paid_link')}
         </TabsContent>
         <TabsContent value="other" className="mt-4 flex flex-col gap-6">

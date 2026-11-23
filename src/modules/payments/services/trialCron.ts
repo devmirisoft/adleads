@@ -3,7 +3,7 @@ import { now } from '@/lib/clock';
 import { paymentLinksAreFake } from '@/lib/config';
 import { db } from '@/lib/db';
 import { addDays, istDate } from '@/modules/core/utils';
-import { expire, firstName, sendClassReminders } from '@/modules/enrollments';
+import { expire, firstName, sendClassReminders, sendCourseLinks } from '@/modules/enrollments';
 import { sendTemplate } from '@/modules/messaging';
 import { getSetting } from '@/modules/settings';
 import { needsReview } from './markPaid';
@@ -22,6 +22,21 @@ async function each<T extends { id: string }>(items: T[], run: (item: T) => Prom
     }
   }
   return result;
+}
+
+/**
+ * Every 30 min: today's course link for each lead, then a payment link (`trial_payment_reminder`)
+ * for unpaid trials that just got their last one. requestPayment reuses a still-valid link.
+ */
+export async function runCourseLinks() {
+  const { queued, finishedTrials } = await sendCourseLinks();
+  const paymentReminders = paymentLinksAreFake()
+    ? { done: 0, failed: [] }
+    : await each(
+        finishedTrials.map((id) => ({ id })),
+        (e) => requestPayment(e.id, { actor: 'cron' }),
+      );
+  return { courseLinks: queued, paymentReminders };
 }
 
 /**

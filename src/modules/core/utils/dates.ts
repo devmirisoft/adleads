@@ -43,6 +43,11 @@ export function istDate(now: Date): Date {
   return new Date(formatInTimeZone(now, APP_TIMEZONE, 'yyyy-MM-dd'));
 }
 
+/** The hour (0–23) it is in IST at `now`. */
+export function istHour(now: Date): number {
+  return Number(formatInTimeZone(now, APP_TIMEZONE, 'H'));
+}
+
 /** Date-only arithmetic on UTC-midnight dates. */
 export function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * DAY);

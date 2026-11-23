@@ -50,12 +50,15 @@ async function seedUsers() {
 
 // ─── Courses + batches ───────────────────────────────────────────────────────
 
+// ₹1 on every course so real Razorpay test payments cost nothing.
+const FEE_PAISE = 100;
+
 const COURSES = {
   english: {
     id: '00000000-0000-4000-8000-000000000c01',
     name: 'Spoken English',
     description: 'Speak confidently in 8 weeks. Live classes on Zoom.',
-    feePaise: 299_900,
+    feePaise: FEE_PAISE,
     trialDays: null,
     sortOrder: 1,
   },
@@ -63,9 +66,33 @@ const COURSES = {
     id: '00000000-0000-4000-8000-000000000c02',
     name: 'Python for Beginners',
     description: 'Learn to code from zero. Live classes with projects.',
-    feePaise: 499_900,
+    feePaise: FEE_PAISE,
     trialDays: 5,
     sortOrder: 2,
+  },
+  marketing: {
+    id: '00000000-0000-4000-8000-000000000c03',
+    name: 'Digital Marketing',
+    description: 'Run Facebook and Google ads that bring real customers.',
+    feePaise: FEE_PAISE,
+    trialDays: null,
+    sortOrder: 3,
+  },
+  excel: {
+    id: '00000000-0000-4000-8000-000000000c04',
+    name: 'Excel for Work',
+    description: 'Formulas, pivot tables and dashboards for the office.',
+    feePaise: FEE_PAISE,
+    trialDays: 2,
+    sortOrder: 4,
+  },
+  speaking: {
+    id: '00000000-0000-4000-8000-000000000c05',
+    name: 'Public Speaking',
+    description: 'Speak clearly in meetings and on stage. Live practice.',
+    feePaise: FEE_PAISE,
+    trialDays: null,
+    sortOrder: 5,
   },
 } as const;
 
@@ -113,16 +140,47 @@ const BATCHES = {
     trialLink: 'https://zoom.example/j/81000000004?for=trial',
     paidLink: 'https://zoom.example/j/81000000004?for=paid',
   },
+  mktEvening: {
+    id: '00000000-0000-4000-8000-000000000b05',
+    courseId: COURSES.marketing.id,
+    name: 'Tue/Thu evening',
+    daysOfWeek: [2, 4],
+    startTime: '20:00',
+    endTime: '21:30',
+    trialLink: 'https://zoom.example/j/81000000005?for=trial',
+    paidLink: 'https://zoom.example/j/81000000005?for=paid',
+  },
+  excelMorning: {
+    id: '00000000-0000-4000-8000-000000000b06',
+    courseId: COURSES.excel.id,
+    name: 'Morning Mon–Sat',
+    daysOfWeek: [1, 2, 3, 4, 5, 6],
+    startTime: '08:00',
+    endTime: '09:00',
+    trialLink: 'https://zoom.example/j/81000000006?for=trial',
+    paidLink: 'https://zoom.example/j/81000000006?for=paid',
+  },
+  speakWeekend: {
+    id: '00000000-0000-4000-8000-000000000b07',
+    courseId: COURSES.speaking.id,
+    name: 'Sunday',
+    daysOfWeek: [7],
+    startTime: '11:00',
+    endTime: '13:00',
+    trialLink: 'https://zoom.example/j/81000000007?for=trial',
+    paidLink: 'https://zoom.example/j/81000000007?for=paid',
+  },
 } as const;
 
 type CourseKey = keyof typeof COURSES;
 type BatchKey = keyof typeof BATCHES;
-const courseOfBatch = (b: BatchKey): CourseKey =>
-  BATCHES[b].courseId === COURSES.english.id ? 'english' : 'python';
+const courseOfBatch = (b: BatchKey) =>
+  (Object.keys(COURSES) as CourseKey[]).find((k) => COURSES[k].id === BATCHES[b].courseId)!;
 
 async function seedCatalog() {
   for (const c of Object.values(COURSES)) {
-    await db.course.upsert({ where: { id: c.id }, update: {}, create: c });
+    // Fee is the one field re-seeding resets, so every course stays at ₹1.
+    await db.course.upsert({ where: { id: c.id }, update: { feePaise: c.feePaise }, create: c });
   }
   for (const b of Object.values(BATCHES)) {
     await db.batch.upsert({

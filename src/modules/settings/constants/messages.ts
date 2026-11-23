@@ -38,6 +38,13 @@ export const BOT_MESSAGES = {
     required: ['link'],
     default: `You're booked, {name}! Your free trial of {batch} ({when}) runs {trial_start} – {trial_end}.\n\nThis link is for your trial days: {link}\n\nYou'll get your regular class link after payment.`,
   },
+  msg_invite: {
+    title: 'Invite a friend',
+    when: 'Right after the first trial link, if the lead is still in the 24 h window. {link} opens WhatsApp so they can send an invite to a contact. Not sent until the business WhatsApp number is set up (WA_DISPLAY_NUMBER).',
+    vars: ['name', 'link'],
+    required: ['link'],
+    default: "Know someone who'd enjoy these classes? Tap here to invite them on WhatsApp: {link}",
+  },
   msg_paid_link: {
     title: 'Paid class link',
     when: 'Once payment is confirmed, with the batch’s paid link.',
@@ -103,11 +110,7 @@ export const fillMessage = (text: string, vars: Record<string, string> = {}) =>
 export const botMessageSchema = z
   .object({
     key: z.enum(BOT_MESSAGE_KEYS as [BotMessageKey, ...BotMessageKey[]]),
-    text: z
-      .string()
-      .trim()
-      .min(1, 'Write the message')
-      .max(500, 'Keep it under 500 characters'),
+    text: z.string().trim().min(1, 'Write the message').max(500, 'Keep it under 500 characters'),
   })
   .superRefine(({ key, text }, ctx) => {
     const def: BotMessageDef = BOT_MESSAGES[key];

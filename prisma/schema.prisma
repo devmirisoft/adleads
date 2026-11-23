@@ -2,6 +2,7 @@ generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
 }
+
 datasource db {
   provider = "postgresql"
 }
@@ -21,6 +22,7 @@ enum LeadStatus {
   OPTED_OUT
   CANCELLED
 }
+
 enum LeadSource {
   CTWA_AD
   LEAD_FORM
@@ -116,17 +118,20 @@ enum WaitlistOfferStatus {
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Course {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(100)
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String   @db.VarChar(100)
   /// ≤72 chars: shown as a WhatsApp list row description
-  description String   @db.VarChar(72)
-  feePaise    Int      @map("fee_paise")
+  description      String   @db.VarChar(72)
+  feePaise         Int      @map("fee_paise")
   /// null → settings.default_trial_days
-  trialDays   Int?     @map("trial_days")
-  isActive    Boolean  @default(true) @map("is_active")
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  trialDays        Int?     @map("trial_days")
+  isActive         Boolean  @default(true) @map("is_active")
+  sortOrder        Int      @default(0) @map("sort_order")
+  /// Sent one at a time, in order: link 1 on the trial's first day, then one every linkIntervalDays.
+  links            String[] @default([])
+  linkIntervalDays Int      @default(1) @map("link_interval_days")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   batches Batch[]
   leads   Lead[]
@@ -289,6 +294,8 @@ model Enrollment {
   paidAt           DateTime?        @map("paid_at")
   cancelledAt      DateTime?        @map("cancelled_at")
   cancelReason     String?          @map("cancel_reason")
+  /// Day number (trial start = day 1) of the last course link queued for this enrollment. 0 = none yet.
+  lastLinkDay      Int              @default(0) @map("last_link_day")
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CalendarDays, MoreHorizontal, Plus } from 'lucide-react';
+import { CalendarDays, Clock, MoreHorizontal, Plus, Users } from 'lucide-react';
 import {
   Button,
   ConfirmDialog,
@@ -168,6 +168,32 @@ export function BatchTable({ data, total, page, pageSize, courses, canEdit, send
       page={page}
       pageSize={pageSize}
       onRowHref={(b) => `/batches/${b.id}`}
+      card={(b) => ({
+        title: b.name,
+        subtitle: <span className="text-muted-foreground">{b.course.name}</span>,
+        badge: (
+          <>
+            <StatusBadge status={b.status} />
+            {needsTrialLink(b) && <StatusBadge status="NO_TRIAL_LINK" />}
+          </>
+        ),
+        actions:
+          canEdit && sendNewLink ? (
+            <BatchActions batch={b} courses={courses} sendNewLink={sendNewLink} />
+          ) : undefined,
+        meta: [
+          { icon: Clock, label: batchSchedule(b) },
+          {
+            icon: CalendarDays,
+            label: (
+              <span>
+                <DateTime value={b.startDate} dateOnly /> – <DateTime value={b.endDate} dateOnly />
+              </span>
+            ),
+          },
+          { icon: Users, label: `${b.seatsTaken} seat${b.seatsTaken === 1 ? '' : 's'} taken` },
+        ],
+      })}
       emptyState={
         <EmptyState
           icon={CalendarDays}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { GraduationCap } from 'lucide-react';
+import { CalendarDays, Clock, CreditCard, GraduationCap } from 'lucide-react';
 import {
   DataTable,
   DateTime,
@@ -20,6 +20,13 @@ import { EnrollmentActions } from './EnrollmentActions';
 
 const name = (l: EnrollmentListItem['lead']) => l.name ?? l.profileName ?? 'Unnamed lead';
 const DAY = 86_400_000;
+
+/** "Last day", "Ended" or days left; null when not on trial. */
+function daysLeft(e: EnrollmentListItem, today: string) {
+  if (e.status !== 'TRIAL') return null;
+  const left = Math.round((new Date(e.trialEnd).getTime() - new Date(today).getTime()) / DAY);
+  return left < 0 ? 'Ended' : left === 0 ? 'Last day' : left;
+}
 
 type Props = {
   data: EnrollmentListItem[];
@@ -80,13 +87,7 @@ export function EnrollmentTable({
       {
         id: 'left',
         header: 'Days left',
-        cell: ({ row: { original: e } }) => {
-          if (e.status !== 'TRIAL') return '—';
-          const left = Math.round(
-            (new Date(e.trialEnd).getTime() - new Date(today).getTime()) / DAY,
-          );
-          return left < 0 ? 'Ended' : left === 0 ? 'Last day' : left;
-        },
+        cell: ({ row }) => daysLeft(row.original, today) ?? '—',
       },
       {
         id: 'status',
@@ -123,6 +124,62 @@ export function EnrollmentTable({
       page={page}
       pageSize={pageSize}
       onRowHref={(e) => `/leads/${e.lead.id}`}
+      card={(e) => {
+        const left = daysLeft(e, today);
+        return {
+          title: name(e.lead),
+          subtitle: <Phone e164={e.lead.phoneE164} />,
+          badge: <StatusBadge status={e.status} />,
+          actions: canAct ? (
+            <EnrollmentActions
+              enrollment={{ id: e.id, status: e.status, leadName: name(e.lead), batch: e.batch }}
+              batches={batches}
+              requestPayment={requestPayment}
+            />
+          ) : undefined,
+          meta: [
+            {
+              icon: GraduationCap,
+              label: (
+                <div className="flex flex-col">
+                  <span>{e.batch.name}</span>
+                  <span className="text-xs text-muted-foreground">{e.batch.course.name}</span>
+                </div>
+              ),
+            },
+            {
+              icon: CalendarDays,
+              label: (
+                <span>
+                  <DateTime value={e.trialStart} dateOnly /> –{' '}
+                  <DateTime value={e.trialEnd} dateOnly />
+                </span>
+              ),
+            },
+            ...(left !== null
+              ? [
+                  {
+                    icon: Clock,
+                    label:
+                      typeof left === 'number' ? `${left} day${left === 1 ? '' : 's'} left` : left,
+                  },
+                ]
+              : []),
+            ...(e.paidAt
+              ? [
+                  {
+                    icon: CreditCard,
+                    label: (
+                      <span>
+                        Paid <DateTime value={e.paidAt} />
+                      </span>
+                    ),
+                  },
+                ]
+              : []),
+          ],
+        };
+      }}
       emptyState={
         <EmptyState
           icon={GraduationCap}
@@ -135,7 +192,12 @@ export function EnrollmentTable({
 }
 
 /** search → status → batch → trial ending soon. */
-export function EnrollmentFilterBar({ batches }: { batches: { id: string; name: string }[] }) {
+export function EnrollmentFilterBar({
+  batches,
+}: {
+  /** Batch names repeat across courses, so the label leads with the course. */
+  batches: { id: string; name: string; course: { name: string } }[];
+}) {
   return (
     <FilterBar>
       <FilterSelect
@@ -149,7 +211,7 @@ export function EnrollmentFilterBar({ batches }: { batches: { id: string; name: 
       <FilterSelect
         param="batchId"
         label="Batch"
-        options={batches.map((b) => ({ value: b.id, label: b.name }))}
+        options={batches.map((b) => ({ value: b.id, label: `${b.course.name} · ${b.name}` }))}
       />
       <FilterSelect
         param="endingInDays"

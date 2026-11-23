@@ -1,5 +1,6 @@
 import 'server-only';
 import type { Prisma } from '@/generated/prisma/client';
+import { config } from '@/lib/config';
 import { db } from '@/lib/db';
 import type { LinkKind } from '@/modules/core/types';
 import { formatDate, formatDays, formatTime } from '@/modules/core/utils';
@@ -81,6 +82,42 @@ export async function sendTrialLink(enrollmentId: string, { once = false } = {})
       })
     : await getMessage('msg_paid_link', vars);
   await deliverLink(e, link, text);
+  if (onTrial && !e.linkSentAt) await sendInvite(e);
+}
+
+/**
+ * wa.me/?text= opens WhatsApp's contact picker with a ready message. Its link opens a chat with us,
+ * pre-filled with who invited them, so staff see the referrer in the friend's first message.
+ */
+export function inviteLink(businessNumber: string, inviter: string) {
+  const join = `https://wa.me/${businessNumber}?text=${encodeURIComponent(
+    `Hi, ${inviter} invited me. I'd like to join a free trial`,
+  )}`;
+  return `https://wa.me/?text=${encodeURIComponent(
+    `${inviter} invited you to a free trial class! Tap to book yours: ${join}`,
+  )}`;
+}
+
+/**
+ * "Invite a friend", after the first trial link (a batch move counts as a new first link). Best
+ * effort: the link already went out, so a failure here must not fail or retry that job. Free text
+ * only: outside the 24 h window there's no template for it, so it's skipped. A failed send still
+ * shows as FAILED in the chat (send.ts).
+ */
+async function sendInvite(e: Loaded) {
+  if (!config.WA_DISPLAY_NUMBER) return;
+  const name = firstName(e.lead);
+  try {
+    const text = await getMessage('msg_invite', {
+      name,
+      link: inviteLink(config.WA_DISPLAY_NUMBER, name),
+    });
+    await sendText(e.leadId, text, { sentBy: 'bot' });
+  } catch (err) {
+    if (!(err instanceof OutsideWindowError)) {
+      console.error('[invite] send failed', err instanceof Error ? err.name : 'unknown');
+    }
+  }
 }
 
 /** "Send the new link" after staff changed a batch's link. Returns how many sends were queued. */

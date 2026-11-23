@@ -30,6 +30,24 @@ export const LEAD_TRANSITIONS: Record<LeadStatus, readonly LeadStatus[]> = {
   CANCELLED: [],
 };
 
+/**
+ * Where a lead got to: the leads "Stage" filter and the dashboard's courses table. Each status is in
+ * at most one stage (CANCELLED is in none). OPTED_OUT can only happen before a trial.
+ */
+export const LEAD_STAGES = {
+  no_join: {
+    label: 'No join',
+    statuses: ['NEW', 'ASKING', 'QUALIFIED', 'WAITLISTED', 'DROPPED', 'OPTED_OUT'],
+  },
+  on_trial: { label: 'On trial', statuses: ['TRIAL_ACTIVE', 'PAYMENT_PENDING'] },
+  trial_unpaid: { label: 'Trial ended, not paid', statuses: ['EXPIRED'] },
+  paid: { label: 'Joined and paid', statuses: ['ENROLLED'] },
+} as const satisfies Record<string, { label: string; statuses: readonly LeadStatus[] }>;
+export type LeadStage = keyof typeof LEAD_STAGES;
+export const LEAD_STAGE_KEYS = Object.keys(LEAD_STAGES) as LeadStage[];
+
+export const CALLED_LABEL = { yes: 'Called', no: 'Not called' } as const;
+
 export const SOURCE_LABEL = {
   CTWA_AD: 'Ad',
   LEAD_FORM: 'Lead form',

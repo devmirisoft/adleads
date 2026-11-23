@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LEAD_AGES, LEAD_STATUS } from '../constants/statuses';
+import { LEAD_AGES, LEAD_STAGE_KEYS, LEAD_STATUS } from '../constants/statuses';
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const blankToUndefined = (v: unknown) => (v === '' ? undefined : v);
@@ -8,6 +8,8 @@ const blankToUndefined = (v: unknown) => (v === '' ? undefined : v);
 export const leadFiltersSchema = z.object({
   q: z.preprocess(blankToUndefined, z.string().trim().max(100).optional()),
   status: z.preprocess(blankToUndefined, z.enum(LEAD_STATUS).optional()).catch(undefined),
+  stage: z.preprocess(blankToUndefined, z.enum(LEAD_STAGE_KEYS).optional()).catch(undefined),
+  called: z.preprocess(blankToUndefined, z.enum(['yes', 'no']).optional()).catch(undefined),
   courseId: z.preprocess(blankToUndefined, z.uuid().optional()).catch(undefined),
   batchId: z.preprocess(blankToUndefined, z.uuid().optional()).catch(undefined),
   source: z
