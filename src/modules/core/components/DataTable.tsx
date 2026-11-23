@@ -2,17 +2,34 @@
 
 import { useRouter } from 'next/navigation';
 import { tableFeatures, useTable, type ColumnDef, type RowData } from '@tanstack/react-table';
+import type { LucideIcon } from 'lucide-react';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { Skeleton } from './ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { useQueryState } from '../hooks/useQueryState';
+import { cn } from '../utils/cn';
 
 // Core features only: sorting/filtering/pagination happen on the server via URL params.
 const features = tableFeatures({});
 
 /** Column definition for DataTable: `{ accessorKey, header, cell }`. */
 export type DataTableColumn<T extends RowData> = ColumnDef<typeof features, T>;
+
+/** One row as a card on phones (below `md`). */
+export type DataTableCard = {
+  title: React.ReactNode;
+  /** Under the title: phone, course, email. */
+  subtitle?: React.ReactNode;
+  /** Top right: StatusBadge(s). */
+  badge?: React.ReactNode;
+  /** Top right, after the badge: the row's ⋯ menu. */
+  actions?: React.ReactNode;
+  /** Icon + text lines under the header. */
+  meta?: { icon: LucideIcon; label: React.ReactNode }[];
+  /** Full-width bottom slot, e.g. a "Mark resolved" button. */
+  footer?: React.ReactNode;
+};
 
 type Props<T extends RowData> = {
   /** Keep at module scope (or memoised) — a new array every render rebuilds the row model. */
@@ -33,6 +50,8 @@ type Props<T extends RowData> = {
     selectedIds: string[];
     onChange: (ids: string[]) => void;
   };
+  /** Phones show each row as this card instead of the table. Without it the table scrolls sideways. */
+  card?: (row: T) => DataTableCard;
 };
 
 const INTERACTIVE = 'a,button,input,select,textarea,[role=menuitem],[role=dialog],[role=checkbox]';
@@ -48,6 +67,7 @@ export function DataTable<T extends RowData>({
   emptyState,
   isLoading = false,
   selection,
+  card,
 }: Props<T>) {
   const router = useRouter();
   const [, setPage] = useQueryState('page');
@@ -72,7 +92,73 @@ export function DataTable<T extends RowData>({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-lg border border-border">
+      {card && (
+        <ul className="flex flex-col gap-3 md:hidden">
+          {isLoading ? (
+            Array.from({ length: 3 }, (_, i) => (
+              <li key={i} className="flex flex-col gap-2 rounded-lg border border-border p-4">
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+              </li>
+            ))
+          ) : data.length === 0 ? (
+            <li className="rounded-lg border border-border">{emptyState}</li>
+          ) : (
+            table.getRowModel().rows.map(({ id: key, original: row }) => {
+              const c = card(row);
+              const id = selection?.getId(row);
+              return (
+                <li
+                  key={key}
+                  className={cn(
+                    'flex flex-col gap-3 rounded-lg border border-border p-4',
+                    onRowHref && 'cursor-pointer hover:bg-muted/50',
+                  )}
+                  tabIndex={onRowHref ? 0 : undefined}
+                  onClick={(e) => open(e, row)}
+                  onKeyDown={(e) => e.key === 'Enter' && open(e, row)}
+                >
+                  <div className="flex items-start gap-3">
+                    {selection && id && (
+                      <Checkbox
+                        aria-label="Select row"
+                        className="mt-1"
+                        checked={selection.selectedIds.includes(id)}
+                        onCheckedChange={(on) => toggle(id, on === true)}
+                      />
+                    )}
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="font-medium break-words">{c.title}</span>
+                      {c.subtitle && <span className="text-sm">{c.subtitle}</span>}
+                    </div>
+                    {(c.badge || c.actions) && (
+                      <div className="flex shrink-0 items-start gap-1">
+                        {c.badge && (
+                          <div className="flex flex-col items-end gap-1 pt-1">{c.badge}</div>
+                        )}
+                        {c.actions}
+                      </div>
+                    )}
+                  </div>
+                  {c.meta && c.meta.length > 0 && (
+                    <ul className="flex flex-col gap-2 text-sm">
+                      {c.meta.map((m, i) => (
+                        <li key={i} className="flex items-center gap-2">
+                          <m.icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                          <div className="min-w-0 flex-1 break-words">{m.label}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {c.footer && <div className="*:w-full">{c.footer}</div>}
+                </li>
+              );
+            })
+          )}
+        </ul>
+      )}
+      <div className={cn('rounded-lg border border-border', card && 'hidden md:block')}>
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((group) => (

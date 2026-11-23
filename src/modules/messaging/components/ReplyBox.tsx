@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { Send } from 'lucide-react';
 import {
   Button,
+  FormActions,
   FormField,
   Select,
   SelectContent,
@@ -91,12 +92,12 @@ export function ReplyBox({
               }}
             />
           </FormField>
-          <div className="flex justify-end">
+          <FormActions>
             <Button type="submit" disabled={!text.trim()}>
               <Send className="size-4" aria-hidden />
               Send reply
             </Button>
-          </div>
+          </FormActions>
         </form>
       ) : (
         <p className="rounded-lg bg-muted p-3 text-sm" role="status">
@@ -120,7 +121,7 @@ export function ReplyBox({
             </Select>
           </FormField>
           {chosen && <p className="rounded-lg bg-muted p-3 text-sm">{chosen.preview}</p>}
-          <div className="flex justify-end">
+          <FormActions>
             <Button
               variant={windowOpen ? 'outline' : 'default'}
               disabled={!chosen}
@@ -132,7 +133,7 @@ export function ReplyBox({
             >
               Send template
             </Button>
-          </div>
+          </FormActions>
         </div>
       )}
     </div>

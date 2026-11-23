@@ -2,7 +2,7 @@
 
 import { useMemo, useOptimistic, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { MoreHorizontal, Users } from 'lucide-react';
+import { MessageCircle, MoreHorizontal, PhoneCall, Users } from 'lucide-react';
 import {
   Button,
   DataTable,
@@ -214,6 +214,46 @@ export function LeadsTable({ data, total, page, pageSize, staff, canAct, current
         page={page}
         pageSize={pageSize}
         onRowHref={(l) => `/leads/${l.id}`}
+        card={(l) => {
+          const m = l.messages[0];
+          return {
+            title: leadName(l),
+            subtitle: <Phone e164={l.phoneE164} />,
+            badge: (
+              <>
+                <StatusBadge status={l.status} />
+                {l.needsHuman && <StatusBadge status="NEEDS_HUMAN" />}
+              </>
+            ),
+            actions: <RowActions lead={l} canAct={canAct} me={currentUserId} />,
+            meta: [
+              ...(m
+                ? [
+                    {
+                      icon: MessageCircle,
+                      label: (
+                        <div className="flex flex-col">
+                          <span className="truncate">{preview(m.body) || 'Template / media'}</span>
+                          <span className="text-xs text-muted-foreground">
+                            <DateTime value={m.createdAt} />
+                          </span>
+                        </div>
+                      ),
+                    },
+                  ]
+                : []),
+              {
+                icon: PhoneCall,
+                label: (
+                  <span className="flex items-center gap-2">
+                    <CalledToggle lead={l} canAct={canAct} />
+                    Called
+                  </span>
+                ),
+              },
+            ],
+          };
+        }}
         selection={
           canAct ? { getId: (l) => l.id, selectedIds: selected, onChange: setSelected } : undefined
         }

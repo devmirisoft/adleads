@@ -3,7 +3,14 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
-import { Button, FormField, SectionCard, Textarea, toast } from '@/modules/core/components';
+import {
+  Button,
+  FormActions,
+  FormField,
+  SectionCard,
+  Textarea,
+  toast,
+} from '@/modules/core/components';
 import {
   BOT_MESSAGES,
   botMessageSchema,
@@ -13,7 +20,13 @@ import {
 import { saveBotMessageAction } from '../services/actions';
 
 /** One fixed bot reply on the Bot script page. */
-export function BotMessageEditor({ messageKey, text }: { messageKey: BotMessageKey; text: string }) {
+export function BotMessageEditor({
+  messageKey,
+  text,
+}: {
+  messageKey: BotMessageKey;
+  text: string;
+}) {
   const def = BOT_MESSAGES[messageKey];
   const {
     register,
@@ -49,12 +62,12 @@ export function BotMessageEditor({ messageKey, text }: { messageKey: BotMessageK
         >
           <Textarea id={id} rows={4} aria-invalid={!!errors.text} {...register('text')} />
         </FormField>
-        <div className="flex justify-end">
+        <FormActions>
           <Button type="submit" disabled={isSubmitting || !isDirty}>
             {isSubmitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
             Save changes
           </Button>
-        </div>
+        </FormActions>
       </form>
     </SectionCard>
   );

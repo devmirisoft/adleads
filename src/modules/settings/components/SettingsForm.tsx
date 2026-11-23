@@ -3,7 +3,14 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
-import { Button, FormField, Input, SectionCard, toast } from '@/modules/core/components';
+import {
+  Button,
+  FormActions,
+  FormField,
+  Input,
+  SectionCard,
+  toast,
+} from '@/modules/core/components';
 import {
   settingsFormSchema,
   type AllSettings,
@@ -126,12 +133,12 @@ export function SettingsForm({ settings }: { settings: AllSettings }) {
           </FormField>
         </div>
       </SectionCard>
-      <div className="flex justify-end">
+      <FormActions>
         <Button type="submit" disabled={isSubmitting || !isDirty}>
           {isSubmitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
           Save changes
         </Button>
-      </div>
+      </FormActions>
     </form>
   );
 }

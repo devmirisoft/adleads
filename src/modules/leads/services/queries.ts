@@ -2,6 +2,7 @@ import 'server-only';
 import { Prisma } from '@/generated/prisma/client';
 import { db } from '@/lib/db';
 import type { Paginated } from '@/modules/core/types';
+import { LEAD_STAGES } from '../constants/statuses';
 import type { LeadFilters } from '../types';
 import { ageRange } from '../utils';
 
@@ -92,8 +93,13 @@ function leadWhere(f: LeadFilters): Prisma.LeadWhereInput {
     ...(f.batchId && { enrollments: { some: { batchId: f.batchId } } }),
     ...(f.source && { source: f.source }),
     ...(f.needsHuman && { needsHuman: true }),
-    // AND, so it combines with the from/to createdAt range below. createdAt is real time, not the dev clock.
-    ...(f.age && { AND: [{ createdAt: ageRange(f.age, new Date()) }] }),
+    ...(f.called && { calledAt: f.called === 'yes' ? { not: null } : null }),
+    // AND, so these combine with `status` above and the from/to createdAt range below.
+    // createdAt is real time, not the dev clock.
+    AND: [
+      ...(f.age ? [{ createdAt: ageRange(f.age, new Date()) }] : []),
+      ...(f.stage ? [{ status: { in: [...LEAD_STAGES[f.stage].statuses] } }] : []),
+    ],
     ...((f.from || f.to) && {
       createdAt: {
         ...(f.from && { gte: istStart(f.from) }),

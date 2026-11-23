@@ -22,19 +22,32 @@ export const included = [
   'Pay by UPI, card or net banking (Razorpay)',
 ];
 
-// EXAMPLE prices: replace before launch.
+// Keep in step with the courses on Bot script → Courses (same names and fees).
 export const plans: Plan[] = [
   {
-    name: 'Monthly',
-    pricePaise: 199_900,
-    period: 'per month',
-    note: 'Pay month to month.',
+    name: '1 month',
+    pricePaise: 49_900,
+    period: 'for 1 month',
+    note: 'One month of live classes.',
   },
   {
-    name: 'Quarterly',
-    pricePaise: 499_900,
+    name: '3 months + gift',
+    pricePaise: 149_900,
     period: 'for 3 months',
-    note: 'One payment for three months.',
+    note: 'Three months of live classes, plus a free gift.',
+  },
+  {
+    name: '6 months + gift',
+    pricePaise: 249_900,
+    period: 'for 6 months',
+    note: 'Six months of live classes, plus a free gift.',
+  },
+  {
+    name: '1 year + gift',
+    pricePaise: 349_900,
+    period: 'for 12 months',
+    note: 'A full year of live classes, plus a free gift.',
+    // Lowest price per month of the four (₹292 vs ₹499, ₹500, ₹417).
     badge: 'Best value',
   },
 ];

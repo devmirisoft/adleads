@@ -55,7 +55,7 @@ export default async function BatchPage({ params, searchParams }: PageProps<'/ba
           )
         }
       />
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <SectionCard
             title="Students"

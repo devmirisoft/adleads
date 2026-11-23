@@ -26,7 +26,12 @@ export function PageHeader({ title, description, actions, backHref }: Props) {
           {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </div>
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && (
+        // Phones: actions drop under the title as full-width buttons.
+        <div className="flex w-full flex-wrap items-center gap-2 *:flex-1 sm:w-auto sm:*:flex-none">
+          {actions}
+        </div>
+      )}
     </div>
   );
 }

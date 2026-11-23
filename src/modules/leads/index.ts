@@ -14,6 +14,8 @@ export {
 export { assignLeads, changeStatus, resolveLead, setCalled, updateNotes } from './services/actions';
 export {
   canTransition,
+  LEAD_STAGE_KEYS,
+  LEAD_STAGES,
   LEAD_STATUS,
   LEAD_TRANSITIONS,
   MANUAL_STATUS_TARGETS,

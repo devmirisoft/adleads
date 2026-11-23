@@ -28,6 +28,11 @@ const schema = z
     WA_PHONE_NUMBER_ID: optional,
     WA_BUSINESS_ACCOUNT_ID: optional,
     WA_ACCESS_TOKEN: optional,
+    // The business WhatsApp number leads message, for "invite a friend" links. Unset: no invite is sent.
+    WA_DISPLAY_NUMBER: z
+      .string()
+      .regex(/^\d{10,15}$/, 'digits only, country code first, e.g. 919812345678')
+      .optional(),
     RAZORPAY_KEY_ID: optional,
     RAZORPAY_KEY_SECRET: optional,
 

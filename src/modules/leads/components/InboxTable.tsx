@@ -1,6 +1,6 @@
 'use client';
 
-import { Inbox } from 'lucide-react';
+import { Inbox, MessageCircle, UserRound } from 'lucide-react';
 import {
   DataTable,
   DateTime,
@@ -113,6 +113,40 @@ export function InboxTable({
         page={page}
         pageSize={pageSize}
         onRowHref={(l) => `/leads/${l.id}`}
+        card={(l) => {
+          const m = l.messages[0];
+          return {
+            title: leadName(l),
+            subtitle: <Phone e164={l.phoneE164} />,
+            badge: (
+              <>
+                <StatusBadge status={l.status} />
+                {l.needsHuman && <StatusBadge status="NEEDS_HUMAN" />}
+                {isUnread(l) && <StatusBadge status="UNREAD" />}
+              </>
+            ),
+            meta: [
+              ...(m
+                ? [
+                    {
+                      icon: MessageCircle,
+                      label: (
+                        <div className="flex flex-col">
+                          <span className="truncate">{preview(m.body) || 'Template / media'}</span>
+                          <span className="text-xs text-muted-foreground">
+                            <DateTime value={m.createdAt} relative />
+                          </span>
+                        </div>
+                      ),
+                    },
+                  ]
+                : []),
+              ...(l.assignedTo ? [{ icon: UserRound, label: l.assignedTo.name }] : []),
+            ],
+            footer:
+              canAct && (l.needsHuman || isUnread(l)) ? <ResolveButton leadId={l.id} /> : undefined,
+          };
+        }}
         emptyState={
           <EmptyState
             icon={Inbox}

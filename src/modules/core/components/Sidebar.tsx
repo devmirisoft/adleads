@@ -63,15 +63,57 @@ type Props = {
   onNavigate?: () => void;
 };
 
-/** Sidebar contents: logo, role-filtered nav, user menu. Used by AdminShell only. */
-export function Sidebar({ user, unreadCount = 0, signOutAction, onNavigate }: Props) {
-  const pathname = usePathname();
+/** Avatar + sign-out menu. `compact` shows the avatar only (mobile header). */
+export function UserMenu({
+  user,
+  signOutAction,
+  compact = false,
+}: Pick<Props, 'user' | 'signOutAction'> & { compact?: boolean }) {
   const initials = user.name
     .split(/\s+/)
     .map((w) => w[0])
     .join('')
     .slice(0, 2)
     .toUpperCase();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        {compact ? (
+          <Button variant="ghost" size="icon" aria-label={`Account menu for ${user.name}`}>
+            <Avatar>
+              <AvatarFallback>{initials}</AvatarFallback>
+            </Avatar>
+          </Button>
+        ) : (
+          <Button variant="ghost" className="h-auto justify-start gap-3 px-2 py-2">
+            <Avatar>
+              <AvatarFallback>{initials}</AvatarFallback>
+            </Avatar>
+            <span className="flex min-w-0 flex-col items-start">
+              <span className="truncate text-sm">{user.name}</span>
+              <span className="text-xs text-muted-foreground">{ROLE_LABEL[user.role]}</span>
+            </span>
+          </Button>
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={compact ? 'end' : 'start'} className="w-56">
+        <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+          {user.email}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={!signOutAction} onSelect={() => void signOutAction?.()}>
+          <LogOut className="size-4" aria-hidden />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Sidebar contents: logo, role-filtered nav, user menu. Used by AdminShell only. */
+export function Sidebar({ user, unreadCount = 0, signOutAction, onNavigate }: Props) {
+  const pathname = usePathname();
 
   return (
     <div className="flex h-full flex-col gap-4 p-4">
@@ -105,29 +147,7 @@ export function Sidebar({ user, unreadCount = 0, signOutAction, onNavigate }: Pr
           );
         })}
       </nav>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="h-auto justify-start gap-3 px-2 py-2">
-            <Avatar>
-              <AvatarFallback>{initials}</AvatarFallback>
-            </Avatar>
-            <span className="flex min-w-0 flex-col items-start">
-              <span className="truncate text-sm">{user.name}</span>
-              <span className="text-xs text-muted-foreground">{ROLE_LABEL[user.role]}</span>
-            </span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
-            {user.email}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem disabled={!signOutAction} onSelect={() => void signOutAction?.()}>
-            <LogOut className="size-4" aria-hidden />
-            Sign out
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <UserMenu user={user} signOutAction={signOutAction} />
     </div>
   );
 }

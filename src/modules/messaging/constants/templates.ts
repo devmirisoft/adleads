@@ -48,6 +48,12 @@ export const TEMPLATES = {
     preview: (v) =>
       `Hi ${v.name}, your free trial has ended and your class link is no longer active. Reply to this message if you'd like to join.`,
   }),
+  course_link: template({
+    vars: z.object({ name: s, course: s, number: s, link: s }),
+    params: (v) => [v.name, v.course, v.number, v.link],
+    preview: (v) =>
+      `Hi ${v.name}, here is today's video for your ${v.course} plan (video ${v.number}): ${v.link}`,
+  }),
   waitlist_seat_open: template({
     vars: z.object({ name: s, batch: s }),
     params: (v) => [v.name, v.batch],

@@ -5,7 +5,15 @@ import { useSearchParams } from 'next/navigation';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { CalendarDays, Download, Loader2, MoreHorizontal, Plus, Users } from 'lucide-react';
+import {
+  CalendarDays,
+  Download,
+  IndianRupee,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Users,
+} from 'lucide-react';
 import {
   Avatar,
   AvatarFallback,
@@ -34,6 +42,7 @@ import {
   FilterSelect,
   FilterTabs,
   FilterToggle,
+  FormActions,
   FormField,
   Input,
   CopyButton,
@@ -584,6 +593,16 @@ function SampleListPage() {
         isLoading={loading}
         selection={{ getId: (r) => r.id, selectedIds: selected, onChange: setSelected }}
         onRowHref={(r) => `/dev/ui?lead=${r.id}`}
+        card={(r) => ({
+          title: r.name,
+          subtitle: <Phone e164={r.phone} />,
+          badge: <StatusBadge status={r.status} />,
+          actions: <RowActions row={r} />,
+          meta: [
+            { icon: IndianRupee, label: <Money paise={r.feePaise} /> },
+            { icon: CalendarDays, label: <DateTime value={r.createdAt} /> },
+          ],
+        })}
         emptyState={
           <EmptyState
             icon={Users}
@@ -687,12 +706,12 @@ function SampleFormPage() {
                   </div>
                 )}
               />
-              <div className="flex justify-end">
+              <FormActions>
                 <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
                   Save changes
                 </Button>
-              </div>
+              </FormActions>
             </form>
           </SectionCard>
         </div>

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, MoreHorizontal, Plus, UserCog } from 'lucide-react';
+import { CalendarDays, Loader2, MoreHorizontal, Plus, ShieldCheck, UserCog } from 'lucide-react';
 import {
   Button,
   ConfirmDialog,
@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   EmptyState,
+  FormActions,
   FormField,
   Input,
   Select,
@@ -279,15 +280,32 @@ export function UsersTable({
   ];
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      <FormActions>
         <AddUserDialog />
-      </div>
+      </FormActions>
       <DataTable
         columns={columns}
         data={users}
         total={users.length}
         page={1}
         pageSize={Math.max(users.length, 1)}
+        card={(u) => ({
+          title: `${u.name}${u.id === currentUserId ? ' (you)' : ''}`,
+          subtitle: <span className="break-all text-muted-foreground">{u.email}</span>,
+          badge: <StatusBadge status={u.isActive ? 'ACTIVE' : 'INACTIVE'} />,
+          actions: <RowActions user={u} me={currentUserId} />,
+          meta: [
+            { icon: ShieldCheck, label: ROLE_LABEL[u.role] },
+            {
+              icon: CalendarDays,
+              label: (
+                <span>
+                  Added <DateTime value={u.createdAt} />
+                </span>
+              ),
+            },
+          ],
+        })}
         emptyState={<EmptyState icon={UserCog} title="No users" />}
       />
     </div>

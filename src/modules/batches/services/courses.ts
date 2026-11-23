@@ -3,8 +3,8 @@ import { db } from '@/lib/db';
 import { courseInputSchema, type CourseInput } from '../types';
 
 const toData = (input: CourseInput) => {
-  const { feeRupees, ...c } = courseInputSchema.parse(input);
-  return { ...c, feePaise: Math.round(feeRupees * 100) };
+  const { feeRupees, links, ...c } = courseInputSchema.parse(input);
+  return { ...c, feePaise: Math.round(feeRupees * 100), links: links.map((l) => l.url) };
 };
 
 export function createCourse(input: CourseInput) {

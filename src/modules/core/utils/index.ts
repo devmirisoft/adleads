@@ -12,6 +12,7 @@ export {
   formatRelative,
   formatTime,
   istDate,
+  istHour,
   isoWeekday,
   isWithin24h,
 } from './dates';

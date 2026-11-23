@@ -108,7 +108,7 @@ export default async function LeadPage({ params }: PageProps<'/leads/[id]'>) {
           )
         }
       />
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="flex flex-col gap-6 lg:col-span-2">
           <SectionCard title="WhatsApp">
             <ChatThread

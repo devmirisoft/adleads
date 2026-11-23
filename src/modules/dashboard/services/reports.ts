@@ -104,3 +104,63 @@ export async function getBatchPreference(range: Range) {
     value: r._count._all,
   }));
 }
+
+const NO_COURSE = 'none';
+
+/**
+ * Per course: leads created in the range by their current status (the course they chose), and
+ * payments received in the range. Most-chosen course first.
+ */
+// ponytail: sums payments in JS; move to a GROUP BY query if a range ever holds tens of thousands.
+export async function getCourseBreakdown(range: Range) {
+  const [leads, payments] = await Promise.all([
+    db.lead.groupBy({
+      by: ['courseId', 'status'],
+      where: { createdAt: createdIn(range) },
+      _count: { _all: true },
+    }),
+    db.payment.findMany({
+      where: { status: 'PAID', paidAt: createdIn(range) },
+      select: {
+        amountPaise: true,
+        enrollment: { select: { batch: { select: { courseId: true } } } },
+      },
+    }),
+  ]);
+
+  type Row = {
+    courseId: string;
+    course: string;
+    leads: number;
+    byStatus: Record<string, number>;
+    revenuePaise: number;
+  };
+  const rows = new Map<string, Row>();
+  const rowOf = (courseId: string) => {
+    let row = rows.get(courseId);
+    if (!row) {
+      row = { courseId, course: '', leads: 0, byStatus: {}, revenuePaise: 0 };
+      rows.set(courseId, row);
+    }
+    return row;
+  };
+  for (const l of leads) {
+    const row = rowOf(l.courseId ?? NO_COURSE);
+    row.leads += l._count._all;
+    row.byStatus[l.status] = (row.byStatus[l.status] ?? 0) + l._count._all;
+  }
+  for (const p of payments) rowOf(p.enrollment.batch.courseId).revenuePaise += p.amountPaise;
+
+  const courses = await db.course.findMany({
+    where: { id: { in: [...rows.keys()].filter((id) => id !== NO_COURSE) } },
+    select: { id: true, name: true },
+  });
+  const nameOf = new Map(courses.map((c) => [c.id, c.name]));
+  return [...rows.values()]
+    .map((r) => ({
+      ...r,
+      course: r.courseId === NO_COURSE ? 'No course chosen yet' : (nameOf.get(r.courseId) ?? '—'),
+    }))
+    .sort((a, b) => b.leads - a.leads || b.revenuePaise - a.revenuePaise);
+}
+export type CourseRow = Awaited<ReturnType<typeof getCourseBreakdown>>[number];

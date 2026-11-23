@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
 import {
   Button,
+  FormActions,
   FormField,
   Input,
   KeyValueList,
@@ -96,12 +97,12 @@ export function QuestionEditor({
             ))}
           </div>
         )}
-        <div className="flex items-center justify-between gap-4">
+        <FormActions>
           <Controller
             control={control}
             name="isActive"
             render={({ field }) => (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 sm:mr-auto">
                 <Switch
                   id={`q-${q.id}-active`}
                   checked={field.value}
@@ -115,20 +116,23 @@ export function QuestionEditor({
             {isSubmitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
             Save changes
           </Button>
-        </div>
+        </FormActions>
       </form>
     </SectionCard>
   );
 }
 
-const NOTHING_OPEN = 'No course has an open batch right now, so the bot hands the lead to staff here.';
+const NOTHING_OPEN =
+  'No course has an open batch right now, so the bot hands the lead to staff here.';
 
 /** The list the lead gets under this question, as the bot would build it right now. */
 function OptionsPreviewList({ preview }: { preview: OptionsPreview }) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border p-4">
       <p className="text-sm font-medium">What the lead sees: a “{preview.button}” list</p>
-      {preview.groups.length === 0 && <p className="text-xs text-muted-foreground">{NOTHING_OPEN}</p>}
+      {preview.groups.length === 0 && (
+        <p className="text-xs text-muted-foreground">{NOTHING_OPEN}</p>
+      )}
       {preview.groups.map((g, i) => (
         <div key={g.heading ?? i} className="flex flex-col gap-2">
           {g.heading && <p className="text-xs text-muted-foreground">{g.heading}</p>}

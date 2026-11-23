@@ -1,6 +1,8 @@
 'use client';
 
-import { Search } from 'lucide-react';
+import { useState } from 'react';
+import { Search, SlidersHorizontal } from 'lucide-react';
+import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -8,6 +10,7 @@ import { Switch } from './ui/switch';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryState } from '../hooks/useQueryState';
+import { cn } from '../utils/cn';
 
 /**
  * Search (URL param `q`) first, then `children` filters in a wrapping row.
@@ -22,29 +25,53 @@ export function FilterBar({
 }) {
   const [q, setQ] = useQueryState('q');
   const setQDebounced = useDebounce(setQ);
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="mb-4 flex flex-wrap items-end gap-3">
-      <div className="flex w-full flex-col gap-1 sm:w-64">
-        <Label htmlFor="filter-q" className="text-xs text-muted-foreground">
-          Search
-        </Label>
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            id="filter-q"
-            type="search"
-            className="pl-8"
-            placeholder={searchPlaceholder}
-            defaultValue={q}
-            onChange={(e) => setQDebounced(e.target.value.trim() || null)}
-          />
+      <div className="flex w-full items-end gap-2 sm:w-auto">
+        <div className="flex flex-1 flex-col gap-1 sm:w-64 sm:flex-none">
+          <Label htmlFor="filter-q" className="text-xs text-muted-foreground">
+            Search
+          </Label>
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              id="filter-q"
+              type="search"
+              className="pl-8"
+              placeholder={searchPlaceholder}
+              defaultValue={q}
+              onChange={(e) => setQDebounced(e.target.value.trim() || null)}
+            />
+          </div>
         </div>
+        {children && (
+          // ponytail: no active-filter count on this button; add one (a `params` prop) if staff miss hidden filters
+          <Button
+            variant="outline"
+            size="icon"
+            className="md:hidden"
+            aria-label="Filters"
+            aria-expanded={open}
+            aria-controls="filter-panel"
+            onClick={() => setOpen((o) => !o)}
+          >
+            <SlidersHorizontal className="size-5" />
+          </Button>
+        )}
       </div>
-      {children}
+      {children && (
+        <div
+          id="filter-panel"
+          className={cn(open ? 'flex' : 'hidden', 'w-full flex-col gap-3 md:contents')}
+        >
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -158,7 +185,7 @@ export function FilterTabs({
       onValueChange={(v) => setValue(v === ALL ? null : v)}
       className="mb-4"
     >
-      <TabsList aria-label={label} className="max-w-full justify-start overflow-x-auto">
+      <TabsList aria-label={label}>
         <TabsTrigger value={ALL}>{allLabel}</TabsTrigger>
         {options.map((o) => (
           <TabsTrigger key={o.value} value={o.value}>

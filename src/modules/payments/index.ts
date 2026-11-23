@@ -21,7 +21,12 @@ export {
   requestPaymentAction,
   resendPaymentLinkAction,
 } from './services/actions';
-export { expireDueTrials, runTrialsCron, type CronResult } from './services/trialCron';
+export {
+  expireDueTrials,
+  runCourseLinks,
+  runTrialsCron,
+  type CronResult,
+} from './services/trialCron';
 export {
   METHOD_LABEL,
   paymentFiltersSchema,

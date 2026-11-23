@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Button, FormField, Textarea, toast } from '@/modules/core/components';
+import { Button, FormActions, FormField, Textarea, toast } from '@/modules/core/components';
 import { updateNotes } from '../services/actions';
 
 export function NotesForm({
@@ -34,12 +34,12 @@ export function NotesForm({
       <FormField id="notes" label="Notes" help="Only staff see these.">
         <Textarea id="notes" rows={4} value={value} onChange={(e) => setValue(e.target.value)} />
       </FormField>
-      <div className="flex justify-end">
+      <FormActions>
         <Button type="submit" disabled={pending || value === (notes ?? '')}>
           {pending && <Loader2 className="size-4 animate-spin" aria-hidden />}
           Save notes
         </Button>
-      </div>
+      </FormActions>
     </form>
   );
 }
